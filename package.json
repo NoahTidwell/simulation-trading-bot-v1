@@ -1,0 +1,26 @@
+{
+  "name": "simulation_trading_bot_v1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simulation-only Solana memecoin momentum bot. Watches live market data, applies a fixed rule set, and logs what it WOULD have done. No wallet, no private key, no signing, no real funds.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "npm run build && node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "dashboard": "node dashboard/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}

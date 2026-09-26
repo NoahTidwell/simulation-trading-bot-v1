@@ -1,0 +1,20 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+node_modules/
+
+# simulation output — live state, trade logs, recordings, analysis and archives
+# for every strategy book (v1.2 in data/, v1.3 in data/v1.3/, v1.4 in data/v1.4/).
+# Nothing under data/ is committed except the empty-directory placeholders.
+data/**
+!data/**/
+!data/**/.gitkeep
+
+# misc
+*.log
+*.tmp
+.DS_Store

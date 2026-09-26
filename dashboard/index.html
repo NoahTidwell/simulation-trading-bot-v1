@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Momentum Bot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b7cfa'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<style>
+  /* ------------------------------------------------------------ tokens */
+  :root {
+    color-scheme: dark;
+    --page: #0a0c10;
+    --surface: #11141a;
+    --surface-2: #171b23;
+    --surface-3: #1e232d;
+    --border: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.13);
+    --ink: #eef1f6;
+    --ink-2: #a3acbb;
+    --muted: #6b7485;
+    --accent: #6d8bff;
+    --accent-soft: rgba(109, 139, 255, 0.14);
+    --good: #34d399;
+    --good-soft: rgba(52, 211, 153, 0.13);
+    --bad: #f87171;
+    --bad-soft: rgba(248, 113, 113, 0.13);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.13);
+    --grid: rgba(255, 255, 255, 0.05);
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+    --radius: 14px;
+    --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      color-scheme: light;
+      --page: #f5f6f8; --surface: #ffffff; --surface-2: #f3f4f7; --surface-3: #e9ebf0;
+      --border: rgba(15, 23, 42, 0.08); --border-strong: rgba(15, 23, 42, 0.16);
+      --ink: #0f172a; --ink-2: #475467; --muted: #8a94a6;
+      --accent: #4a63e7; --accent-soft: rgba(74, 99, 231, 0.10);
+      --good: #0f9d6b; --good-soft: rgba(15, 157, 107, 0.10);
+      --bad: #dc3f3f; --bad-soft: rgba(220, 63, 63, 0.09);
+      --warn: #b7791f; --warn-soft: rgba(183, 121, 31, 0.11);
+      --grid: rgba(15, 23, 42, 0.06);
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -16px rgba(15, 23, 42, 0.18);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --page: #f5f6f8; --surface: #ffffff; --surface-2: #f3f4f7; --surface-3: #e9ebf0;
+    --border: rgba(15, 23, 42, 0.08); --border-strong: rgba(15, 23, 42, 0.16);
+    --ink: #0f172a; --ink-2: #475467; --muted: #8a94a6;
+    --accent: #4a63e7; --accent-soft: rgba(74, 99, 231, 0.10);
+    --good: #0f9d6b; --good-soft: rgba(15, 157, 107, 0.10);
+    --bad: #dc3f3f; --bad-soft: rgba(220, 63, 63, 0.09);
+    --warn: #b7791f; --warn-soft: rgba(183, 121, 31, 0.11);
+    --grid: rgba(15, 23, 42, 0.06);
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -16px rgba(15, 23, 42, 0.18);
+  }
+
+  /* ------------------------------------------------------------ base */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  body { min-height: 100vh; }
+  .num, td.num, .kpi-value, .stat-value { font-variant-numeric: tabular-nums; }
+  button { font: inherit; color: inherit; }
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 640px) { .wrap { padding: 0 16px; } }
+  .up { color: var(--good); } .down { color: var(--bad); } .flat { color: var(--ink-2); }
+  .muted { color: var(--muted); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ------------------------------------------------------------ header */
+  header.bar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--page) 82%, transparent);
+    backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  header.bar .wrap { display: flex; align-items: center; gap: 14px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .brand svg { flex: none; }
+  .brand h1 { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; margin: 0; white-space: nowrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border); white-space: nowrap; }
+  .chip.accent { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .chip.good { background: var(--good-soft); color: var(--good); border-color: transparent; }
+  .chip.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status.live .dot { background: var(--good); box-shadow: 0 0 0 0 var(--good); animation: pulse 2s infinite; }
+  .status.stale .dot { background: var(--warn); }
+  .status.down .dot { background: var(--bad); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  @media (prefers-reduced-motion: reduce) { .status.live .dot { animation: none; } }
+  .hdr-meta { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+  .hdr-meta .kv { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .hdr-meta .kv b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+  @media (max-width: 900px) { .hdr-meta .kv { display: none; } }
+  @media (max-width: 520px) { .brand .chip.sim { display: none; } }
+  .icon-btn { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+  .icon-btn:hover { color: var(--ink); border-color: var(--border-strong); }
+  .icon-btn:focus-visible, .seg button:focus-visible, .filter button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  main.wrap { padding-top: 22px; padding-bottom: 40px; display: grid; gap: 16px; }
+
+  /* ------------------------------------------------------------ cards */
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .c12 { grid-column: span 12; } .c8 { grid-column: span 8; } .c7 { grid-column: span 7; } .c6 { grid-column: span 6; } .c5 { grid-column: span 5; } .c4 { grid-column: span 4; } .c3 { grid-column: span 3; }
+  @media (max-width: 1180px) { .c8, .c7, .c6, .c5, .c4 { grid-column: span 12; } .c3 { grid-column: span 6; } }
+  @media (max-width: 640px) { .c3 { grid-column: span 12; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+  .card-hd { display: flex; align-items: center; gap: 10px; padding: 16px 18px 0; min-height: 34px; }
+  .card-hd h2 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
+  .card-hd .sub { font-size: 12px; color: var(--muted); }
+  .card-hd .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .card-bd { padding: 14px 18px 18px; }
+  .card-bd.flush { padding: 10px 0 6px; }
+  .empty { display: grid; place-items: center; text-align: center; gap: 6px; padding: 34px 16px; color: var(--muted); font-size: 13px; }
+  .empty svg { opacity: 0.5; }
+  .empty b { color: var(--ink-2); font-weight: 600; }
+
+  /* ------------------------------------------------------------ KPIs */
+  .kpi { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden; }
+  .kpi-label { font-size: 12px; color: var(--muted); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .kpi-value { font-size: 28px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; }
+  .kpi-sub { font-size: 12.5px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+  .kpi .spark { position: absolute; right: 0; bottom: 0; width: 46%; height: 56px; opacity: 0.9; pointer-events: none; }
+  .delta { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .meter { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin-top: 4px; }
+  .meter > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .5s ease; }
+  .meter.good > i { background: var(--good); } .meter.warn > i { background: var(--warn); } .meter.bad > i { background: var(--bad); }
+  .split { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--surface-3); margin-top: 4px; gap: 2px; }
+  .split i { display: block; height: 100%; }
+  .split .w { background: var(--good); } .split .l { background: var(--bad); }
+
+  .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .stats > div { padding: 14px 18px; border-left: 1px solid var(--border); min-width: 0; }
+  .stats > div:first-child { border-left: 0; }
+  @media (max-width: 1180px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } .stats > div:nth-child(4) { border-left: 0; } .stats > div:nth-child(n+4) { border-top: 1px solid var(--border); } }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats > div { border-left: 0 !important; border-top: 1px solid var(--border); } .stats > div:nth-child(-n+2) { border-top: 0; } .stats > div:nth-child(even) { border-left: 1px solid var(--border) !important; } }
+  .stat-label { font-size: 11.5px; color: var(--muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat-value { font-size: 17px; font-weight: 620; margin-top: 3px; letter-spacing: -0.01em; white-space: nowrap; }
+  .stat-sub { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ------------------------------------------------------------ controls */
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
+  .seg button { border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+  .seg button:hover { color: var(--ink-2); }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .filter { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .filter button { border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; height: 26px; padding: 0 10px; border-radius: 999px; cursor: pointer; }
+  .filter button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); border-color: var(--border-strong); }
+
+  /* ------------------------------------------------------------ chart */
+  .chart { position: relative; }
+  .chart svg { width: 100%; height: 280px; display: block; }
+  /* Side by side with the Risk card, the chart grows to fill the row instead of leaving a gap. */
+  @media (min-width: 1181px) {
+    .eq-card { display: flex; flex-direction: column; }
+    .eq-card > .card-bd { flex: 1; display: flex; }
+    .eq-card .chart { flex: 1; display: flex; }
+    .eq-card .chart svg { height: auto; min-height: 280px; flex: 1; }
+  }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 10px; font-size: 12px; box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5); display: none; white-space: nowrap; font-variant-numeric: tabular-nums; z-index: 5; }
+  .tip .t { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .tip .v { font-size: 15px; font-weight: 650; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); padding: 0 18px 14px; flex-wrap: wrap; }
+  .legend b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* ------------------------------------------------------------ status list */
+  .rows { display: grid; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .row:first-child { border-top: 0; padding-top: 2px; }
+  .row .k { color: var(--ink-2); }
+  .row .v { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .gate { padding: 12px 0; border-top: 1px solid var(--border); }
+  .gate-hd { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .gate-hd .chip { margin-left: auto; }
+  .gate ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; }
+  .gate li { display: flex; gap: 8px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .gate li .ok { color: var(--good); } .gate li .no { color: var(--muted); }
+  .section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 16px 0 4px; }
+
+  /* ------------------------------------------------------------ positions */
+  .positions { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  @media (max-width: 420px) { .positions { grid-template-columns: 1fr; } }
+  .pos { border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); padding: 14px 16px; display: grid; gap: 12px; }
+  .pos-hd { display: flex; align-items: flex-start; gap: 10px; }
+  .pos-sym { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .pos-addr { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .pos-gain { margin-left: auto; text-align: right; }
+  .pos-gain .g { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .pos-gain .s { font-size: 11.5px; color: var(--muted); }
+  .ladder { position: relative; height: 38px; }
+  .ladder .track { position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 999px; background: linear-gradient(90deg, var(--bad-soft), var(--surface-3) 40%, var(--good-soft)); }
+  .ladder .fill { position: absolute; top: 14px; height: 6px; border-radius: 999px; }
+  .ladder .mk { position: absolute; top: 9px; width: 2px; height: 16px; border-radius: 2px; transform: translateX(-1px); }
+  .ladder .mk.stop { background: var(--bad); }
+  .ladder .mk.entry { background: var(--ink-2); }
+  .ladder .mk.tier { background: var(--good); opacity: 0.55; }
+  .ladder .mk.tier.done { opacity: 1; }
+  .ladder .mk.trail { background: var(--warn); width: 3px; }
+  .ladder .mk.peak { background: var(--accent); opacity: 0.6; height: 10px; top: 12px; }
+  .ladder .now { position: absolute; top: 10px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; border: 3px solid var(--surface-2); box-shadow: 0 0 0 1px var(--border-strong); }
+  .ladder .lbl { position: absolute; top: 27px; font-size: 10.5px; color: var(--muted); transform: translateX(-50%); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pos-ft { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .pos-ft .k { font-size: 11px; color: var(--muted); }
+  .pos-ft .v { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ------------------------------------------------------------ tables */
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; white-space: nowrap; vertical-align: middle; }
+  th { font-size: 11.5px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  td { border-bottom: 1px solid var(--border); font-size: 13px; }
+  th:first-child, td:first-child { padding-left: 18px; } th:last-child, td:last-child { padding-right: 18px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tok { font-weight: 620; }
+  .band { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; font-size: 11px; font-weight: 700; background: var(--surface-3); color: var(--ink-2); }
+  .pill-sm { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; font-weight: 600; background: var(--surface-3); color: var(--ink-2); }
+  .pill-sm.good { background: var(--good-soft); color: var(--good); }
+  .pill-sm.bad { background: var(--bad-soft); color: var(--bad); }
+  .pill-sm.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill-sm.accent { background: var(--accent-soft); color: var(--accent); }
+  .scroll { max-height: 440px; overflow-y: auto; }
+
+  /* ------------------------------------------------------------ breakdown bars */
+  .bars { display: grid; gap: 12px; }
+  .bars .b-hd { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+  .bars .b-hd .n { color: var(--muted); font-size: 12px; }
+  .bars .b-hd .v { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bars .track { height: 8px; border-radius: 999px; background: var(--surface-3); margin-top: 6px; overflow: hidden; }
+  .bars .track i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+
+  /* ------------------------------------------------------------ funnel */
+  .funnel { display: grid; gap: 8px; }
+  .fstep { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); overflow: hidden; }
+  .fstep .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent-soft); }
+  .fstep > * { position: relative; }
+  .fstep b { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; min-width: 38px; }
+  .fstep .l { font-size: 13px; color: var(--ink); font-weight: 500; }
+  .fstep .s { margin-left: auto; font-size: 12px; color: var(--muted); max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  .reasons { display: grid; gap: 8px; margin-top: 4px; }
+  .reasons .r { display: grid; grid-template-columns: 128px 1fr 34px; gap: 10px; align-items: center; font-size: 12.5px; }
+  .reasons .r .l { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .reasons .r .t { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+  .reasons .r .t i { display: block; height: 100%; background: var(--muted); border-radius: 999px; }
+  .reasons .r .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+  /* ------------------------------------------------------------ feed */
+  .feed { max-height: 460px; overflow-y: auto; }
+  .ev { display: grid; grid-template-columns: 64px 72px minmax(0, 1fr); gap: 10px; align-items: start; padding: 9px 18px; border-top: 1px solid var(--border); font-size: 12.5px; }
+  .ev:first-child { border-top: 0; }
+  .ev .t { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; padding-top: 2px; }
+  .ev .m { color: var(--ink-2); word-break: break-word; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; }
+  .ev.trade .m { color: var(--ink); }
+  @media (max-width: 640px) { .ev { grid-template-columns: 60px minmax(0, 1fr); } .ev .kind { display: none; } }
+
+  /* ------------------------------------------------------------ strategy */
+  .spec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+  @media (max-width: 640px) { .spec { grid-template-columns: 1fr; } }
+  .spec .row .v { font-weight: 550; color: var(--ink); }
+
+  details.fills > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 16px 18px; }
+  details.fills > summary::-webkit-details-marker { display: none; }
+  details.fills > summary h2 { font-size: 13px; font-weight: 600; margin: 0; }
+  details.fills > summary .chev { margin-left: auto; transition: transform .2s ease; color: var(--muted); }
+  details.fills[open] > summary .chev { transform: rotate(180deg); }
+  .errs { margin: 0 18px 16px; padding: 10px 12px; border-radius: 10px; background: var(--bad-soft); color: var(--bad); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+
+  footer { color: var(--muted); font-size: 12px; padding: 8px 0 28px; display: flex; gap: 8px 18px; flex-wrap: wrap; }
+  footer code { font-family: var(--mono); font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M7 21l6-6 4 4 8-9" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>Momentum Bot</h1>
+      <div class="seg" id="bookSeg" role="group" aria-label="Strategy version">
+        <button type="button" data-book="v1.2" aria-pressed="true" title="v1.2 — the main strategy">v1.2</button>
+        <button type="button" data-book="v1.3" aria-pressed="false" title="v1.3 — parallel paper strategy with looser entry rules">v1.3</button>
+        <button type="button" data-book="v1.4" aria-pressed="false" title="v1.4 — micro caps ($100k–$1M) with wide stops and long-running winners">v1.4</button>
+      </div>
+      <div class="seg" id="feeSeg" role="group" aria-label="Fixed fees">
+        <button type="button" data-fees="exclude" aria-pressed="true" title="P&amp;L without the fixed SOL fees (priority fee + Jito tip). Pool fees and price impact are still included.">No fees</button>
+        <button type="button" data-fees="include" aria-pressed="false" title="P&amp;L as simulated, including the fixed SOL fees paid on each fill">With fees</button>
+      </div>
+      <span class="chip sim" title="Hardcoded simulation mode. No wallet, no keys, no real funds.">Simulated</span>
+    </div>
+    <div class="hdr-meta">
+      <span class="kv">Uptime <b id="uptime">–</b></span>
+      <span class="kv">Cycle <b id="cycle">–</b></span>
+      <span class="kv">Started <b id="startedAt">–</b></span>
+      <span class="status" id="live" role="status"><span class="dot"></span><span id="liveText">Connecting…</span></span>
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Toggle light / dark theme" title="Toggle theme">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- KPIs -->
+  <section class="grid" aria-label="Key figures">
+    <div class="card kpi c3" id="kpiEquity"></div>
+    <div class="card kpi c3" id="kpiPnl"></div>
+    <div class="card kpi c3" id="kpiWin"></div>
+    <div class="card kpi c3" id="kpiDd"></div>
+  </section>
+
+  <section class="card" aria-label="Secondary statistics">
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <!-- Equity + status -->
+  <section class="grid">
+    <div class="card c8 eq-card">
+      <div class="card-hd">
+        <h2>Equity</h2><span class="sub" id="equityRange"></span>
+        <div class="right">
+          <div class="seg" id="rangeSeg" role="group" aria-label="Chart range">
+            <button type="button" data-range="3600000">1H</button>
+            <button type="button" data-range="21600000">6H</button>
+            <button type="button" data-range="86400000" aria-pressed="true">24H</button>
+            <button type="button" data-range="0">All</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-bd" style="padding-bottom:6px">
+        <div class="chart" id="chart"><svg id="svg" role="img" aria-label="Simulated equity over time"></svg><div class="tip" id="tip"></div></div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="card c4">
+      <div class="card-hd"><h2>Risk</h2><div class="right" id="entriesChip"></div></div>
+      <div class="card-bd" id="risk"></div>
+    </div>
+  </section>
+
+  <!-- Positions -->
+  <section class="card">
+    <div class="card-hd"><h2>Open positions</h2><span class="sub" id="posCount"></span></div>
+    <div class="card-bd" id="positions"></div>
+  </section>
+
+  <!-- Closed trades + breakdown -->
+  <section class="grid">
+    <div class="card c8">
+      <div class="card-hd"><h2>Closed trades</h2><span class="sub" id="closedCount"></span></div>
+      <div class="card-bd flush"><div class="tablewrap scroll" id="closed"></div></div>
+    </div>
+    <div class="card c4">
+      <div class="card-hd"><h2>Exits by reason</h2></div>
+      <div class="card-bd" id="reasons"></div>
+    </div>
+  </section>
+
+  <!-- Scanner + feed -->
+  <section class="grid">
+    <div class="card c5">
+      <div class="card-hd"><h2>Scanner</h2><span class="sub" id="scanSub"></span></div>
+      <div class="card-bd" id="funnel"></div>
+    </div>
+    <div class="card c7">
+      <div class="card-hd">
+        <h2>Activity</h2>
+        <div class="right">
+          <div class="filter" id="feedFilter" role="group" aria-label="Filter activity">
+            <button type="button" data-f="all" aria-pressed="true">All</button>
+            <button type="button" data-f="trade">Trades</button>
+            <button type="button" data-f="signal">Signals</button>
+            <button type="button" data-f="warn">Warnings</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-bd flush"><div class="feed" id="feed"></div></div>
+      <div id="cycleErrors"></div>
+    </div>
+  </section>
+
+  <!-- Strategy + system -->
+  <section class="grid">
+    <div class="card c7">
+      <div class="card-hd"><h2>Strategy</h2><span class="sub" id="stratSub"></span></div>
+      <div class="card-bd"><div class="spec" id="strategy"></div></div>
+    </div>
+    <div class="card c5">
+      <div class="card-hd"><h2>System</h2><span class="sub" id="sysSub"></span></div>
+      <div class="card-bd" id="system"></div>
+    </div>
+  </section>
+
+  <!-- Raw fills -->
+  <details class="card fills" id="fillsBox">
+    <summary><h2>Fill log</h2><span class="sub muted" id="fillCount"></span>
+      <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+    </summary>
+    <div class="tablewrap scroll" id="fills" style="border-top:1px solid var(--border)"></div>
+  </details>
+
+  <footer>
+    <span>Read-only · localhost only · refreshes every 4 s</span>
+    <span>Reads <code>data/trades/*</code> and <code>data/positions/*</code></span>
+  </footer>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const POLL_MS = 4000;
+  let state = null;
+
+  /* Strategy book: v1.2 (main) or v1.3 (parallel paper strategy). Remembered per browser. */
+  /* Fixed fees (priority fee + Jito tip): excluded by default while strategies are tuned. */
+  const FEES_KEY = "momentum-dash-fees";
+  let fees = "exclude";
+  try { fees = localStorage.getItem(FEES_KEY) === "include" ? "include" : "exclude"; } catch { /* storage unavailable */ }
+  function syncFeeSeg() {
+    for (const b of document.querySelectorAll("#feeSeg button")) b.setAttribute("aria-pressed", String(b.dataset.fees === fees));
+  }
+  document.getElementById("feeSeg").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-fees]");
+    if (!b || b.dataset.fees === fees) return;
+    fees = b.dataset.fees;
+    try { localStorage.setItem(FEES_KEY, fees); } catch { /* ignore */ }
+    syncFeeSeg();
+    load();
+  });
+  syncFeeSeg();
+
+  const BOOK_KEY = "momentum-dash-book";
+  let book = "v1.2";
+  try { book = localStorage.getItem(BOOK_KEY) || "v1.2"; } catch { /* storage unavailable */ }
+  function syncBookSeg(books) {
+    for (const b of document.querySelectorAll("#bookSeg button")) {
+      b.setAttribute("aria-pressed", String(b.dataset.book === book));
+      const info = (books || []).find((x) => x.id === b.dataset.book);
+      const off = info ? !info.available : false;
+      b.disabled = off && b.dataset.book !== book;
+      if (off) b.title = `${b.dataset.book} has no data yet — is the bot running it?`;
+    }
+  }
+  document.getElementById("bookSeg").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-book]");
+    if (!b || b.disabled || b.dataset.book === book) return;
+    book = b.dataset.book;
+    try { localStorage.setItem(BOOK_KEY, book); } catch { /* ignore */ }
+    state = null;
+    syncBookSeg(null);
+    load();
+  });
+  syncBookSeg(null);
+  let rangeMs = 86_400_000;
+  let feedFilter = "all";
+
+  /* ------------------------------------------------------------ theme */
+  const THEME_KEY = "momentum-dash-theme";
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  try { applyTheme(localStorage.getItem(THEME_KEY)); } catch { /* storage unavailable */ }
+  $("themeBtn").onclick = () => {
+    const current = document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    const next = current === "light" ? "dark" : "light";
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
+    if (state) render();
+  };
+
+  /* ------------------------------------------------------------ format */
+  const fin = (n) => n != null && isFinite(n);
+  const usd = (n, d = 2) => !fin(n) ? "–" : (n < 0 ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const susd = (n, d = 2) => !fin(n) ? "–" : (n > 0 ? "+" : n < 0 ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const pct = (n, d = 1) => !fin(n) ? "–" : (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(d) + "%";
+  const price = (n) => !fin(n) ? "–" : n >= 1 ? "$" + n.toFixed(4) : "$" + n.toPrecision(4);
+  const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return d ? `${d}d ${h}h` : h ? `${h}h ${String(m).padStart(2, "0")}m` : m ? `${m}m ${String(x).padStart(2, "0")}s` : `${x}s`; };
+  const mcap = (n) => !fin(n) ? "–" : n >= 1e9 ? `$${+(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `$${+(n / 1e6).toFixed(0)}M` : `$${+(n / 1e3).toFixed(0)}k`;
+  const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  /** Compact 24-hour clock for dense lists (fits a fixed-width column). */
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const dayTime = (t) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const tone = (n) => (n > 0 ? "up" : n < 0 ? "down" : "flat");
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  const REASONS = {
+    takeProfitTier1: ["Take profit 1", "good"], takeProfitTier2: ["Take profit 2", "good"], takeProfitTier3: ["Take profit 3", "good"],
+    takeProfitFinal: ["Take profit", "good"], trailingStop: ["Trailing stop", "accent"], hardStop: ["Hard stop", "bad"],
+    noFollowThrough: ["No follow-through", "warn"], maxHoldTime: ["Time limit", ""], velocityEjection: ["Velocity", "warn"],
+    stalePrice: ["Stale price", "bad"], securityReflag: ["Security", "bad"],
+  };
+  const reasonPill = (r) => { const [label, k] = REASONS[r] || [r || "–", ""]; return `<span class="pill-sm ${k}">${esc(label)}</span>`; };
+
+  /* ------------------------------------------------------------ loop */
+  async function load() {
+    const want = book, wantFees = fees;
+    try {
+      const res = await fetch(`/api/state?book=${encodeURIComponent(want)}&fees=${wantFees}`, { cache: "no-store" });
+      const next = await res.json();
+      if (want !== book || wantFees !== fees) return; // switched while this request was in flight
+      state = next;
+      syncBookSeg(state.books);
+      render();
+    } catch {
+      setLive("down", "Dashboard server unreachable");
+    }
+  }
+  async function tick() {
+    await load();
+    setTimeout(tick, POLL_MS);
+  }
+  function setLive(kind, text) { $("live").className = "status " + kind; $("liveText").textContent = text; }
+
+  function render() {
+    const s = state.summary;
+    if (!s) { setLive("down", `No ${book} summary yet — is the bot running?`); return; }
+    const age = state.summaryAgeMs ?? 0;
+    const interval = (s.limits && s.limits.scanIntervalMs) || 5000;
+    if (age < interval * 4) setLive("live", "Live");
+    else if (age < 120000) setLive("stale", `Stale · ${Math.round(age / 1000)}s`);
+    else setLive("down", `Bot offline · ${dur(age)}`);
+
+    const ver = s.limits && s.limits.strategy && s.limits.strategy.version;
+    if (ver) document.title = `Momentum Bot v${ver}`;
+    $("uptime").textContent = dur(s.uptimeSec * 1000);
+    $("cycle").textContent = s.cycle.toLocaleString();
+    $("startedAt").textContent = s.startedAt ? dayTime(s.startedAt) : "–";
+
+    const closed = state.closedTrades || [];
+    const st = tradeStats(closed);
+    renderKpis(s, st);
+    renderStats(s, st);
+    renderChart();
+    renderRisk(s);
+    renderPositions(state.positions || [], s);
+    renderClosed(closed);
+    renderReasons(closed);
+    renderFunnel(s);
+    renderFeed(state.events || []);
+    renderStrategy(s);
+    renderSystem(s);
+    renderFills(state.trades || []);
+    const errs = s.errorsLastCycle || [];
+    $("cycleErrors").innerHTML = errs.length ? `<div class="errs">${errs.map((e) => "⚠ " + esc(e)).join("\n")}</div>` : "";
+  }
+
+  /* ------------------------------------------------------------ derived stats */
+  function tradeStats(trades) {
+    const wins = trades.filter((t) => t.realizedPnlUsd > 0);
+    const losses = trades.filter((t) => t.realizedPnlUsd <= 0);
+    const grossWin = wins.reduce((a, t) => a + t.realizedPnlUsd, 0);
+    const grossLoss = -losses.reduce((a, t) => a + t.realizedPnlUsd, 0);
+    const total = grossWin - grossLoss;
+    const holds = trades.map((t) => t.closedAt - t.openedAt);
+    const best = trades.reduce((b, t) => (!b || t.realizedPnlUsd > b.realizedPnlUsd ? t : b), null);
+    const worst = trades.reduce((b, t) => (!b || t.realizedPnlUsd < b.realizedPnlUsd ? t : b), null);
+    return {
+      n: trades.length, wins: wins.length, losses: losses.length,
+      profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : null,
+      expectancy: trades.length ? total / trades.length : null,
+      avgHoldMs: holds.length ? holds.reduce((a, b) => a + b, 0) / holds.length : null,
+      best, worst,
+    };
+  }
+
+  /* ------------------------------------------------------------ KPIs */
+  function renderKpis(s, st) {
+    const total = s.equityUsd - s.startingBankrollUsd;
+    const totalPct = (total / s.startingBankrollUsd) * 100;
+    const eq = (state.equity || []).filter((p) => fin(p.equity) && p.t >= Date.now() - 86_400_000);
+    $("kpiEquity").innerHTML = `
+      <div class="kpi-label">Equity</div>
+      <div class="kpi-value">${usd(s.equityUsd)}</div>
+      <div class="kpi-sub"><span class="delta ${tone(total)}">${susd(total)} · ${pct(totalPct, 2)}</span><span class="muted">since start</span></div>
+      ${sparkline(eq, s.startingBankrollUsd)}`;
+
+    const net = s.realizedPnlUsd + s.unrealizedPnlUsd;
+    $("kpiPnl").innerHTML = `
+      <div class="kpi-label">Net P&amp;L</div>
+      <div class="kpi-value ${tone(net)}">${susd(net)}</div>
+      <div class="kpi-sub"><span>Realized <b class="${tone(s.realizedPnlUsd)}">${susd(s.realizedPnlUsd)}</b></span><span>Open <b class="${tone(s.unrealizedPnlUsd)}">${susd(s.unrealizedPnlUsd)}</b></span></div>`;
+
+    const wr = s.winRatePct;
+    const wFrac = st.n ? (st.wins / st.n) * 100 : 0;
+    $("kpiWin").innerHTML = `
+      <div class="kpi-label">Win rate</div>
+      <div class="kpi-value">${wr == null ? "–" : wr.toFixed(0) + "%"}</div>
+      <div class="kpi-sub"><span><b class="up">${st.wins}</b> won · <b class="down">${st.losses}</b> lost</span><span class="muted">${st.n} closed</span></div>
+      <div class="split" aria-hidden="true">${st.n ? `<i class="w" style="width:${wFrac}%"></i><i class="l" style="flex:1"></i>` : ""}</div>`;
+
+    const lim = s.limits || {};
+    const cb = lim.drawdownCircuitBreakerPct ?? -30;
+    const tranche = ((s.equityUsd - s.startingBankrollUsd) / s.startingBankrollUsd) * 100;
+    const use = clamp((Math.min(0, tranche) / cb) * 100, 0, 100);
+    $("kpiDd").innerHTML = `
+      <div class="kpi-label">Drawdown</div>
+      <div class="kpi-value ${s.currentDrawdownPct < 0 ? "down" : ""}">${pct(s.currentDrawdownPct)}</div>
+      <div class="kpi-sub"><span>Max <b>${pct(s.maxDrawdownPct)}</b></span><span class="muted">breaker at ${cb}%</span></div>
+      <div class="meter ${use > 66 ? "bad" : use > 33 ? "warn" : "good"}" title="${use.toFixed(0)}% of the way to the circuit breaker"><i style="width:${Math.max(use, 1.5)}%"></i></div>`;
+  }
+
+  function sparkline(pts, start) {
+    if (pts.length < 2) return "";
+    const W = 200, H = 56;
+    const vals = pts.map((p) => p.equity);
+    let lo = Math.min(start, ...vals), hi = Math.max(start, ...vals);
+    if (hi - lo < start * 0.002) { lo -= start * 0.001; hi += start * 0.001; }
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const x = (t) => ((t - t0) / Math.max(1, t1 - t0)) * W;
+    const y = (v) => 6 + (1 - (v - lo) / (hi - lo)) * (H - 12);
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.equity).toFixed(1)}`).join("");
+    const color = pts[pts.length - 1].equity >= start ? "var(--good)" : "var(--bad)";
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity="0.22"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+      <path d="${d} L${W},${H} L0,${H} Z" fill="url(#sg)"/>
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+
+  function stat(label, value, sub, extra = "") {
+    return `<div><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div>${extra}</div>`;
+  }
+
+  function renderStats(s, st) {
+    const lim = s.limits || {};
+    const dayLimit = lim.dailyLossLimitPct ?? -15;
+    const dayUse = clamp((s.dailyRealizedPnlPct / dayLimit) * 100, 0, 100);
+    const expMax = lim.maxTotalExposurePct ?? 60;
+    const pf = st.profitFactor;
+    $("stats").innerHTML = [
+      // Realized only (what the daily loss limit counts); open positions shown alongside so it isn't mistaken for net.
+      stat("Today · realized", `<span class="${tone(s.dailyRealizedPnlUsd)}">${susd(s.dailyRealizedPnlUsd)}</span>`,
+        `${pct(s.dailyRealizedPnlPct)} · open <span class="${tone(s.unrealizedPnlUsd)}">${susd(s.unrealizedPnlUsd)}</span> · stop at ${dayLimit}%`,
+        `<div class="meter ${dayUse > 66 ? "bad" : dayUse > 33 ? "warn" : ""}"><i style="width:${dayUse}%"></i></div>`),
+      stat("Profit factor", pf == null ? "–" : pf === Infinity ? "∞" : `<span class="${pf >= 1 ? "up" : "down"}">${pf.toFixed(2)}</span>`, "gross win ÷ gross loss"),
+      stat("Expectancy", st.expectancy == null ? "–" : `<span class="${tone(st.expectancy)}">${susd(st.expectancy)}</span>`, "average P&amp;L per trade"),
+      stat("Avg win / loss", `<span class="up">${susd(s.averageWinUsd)}</span> <span class="muted">/</span> <span class="down">${susd(s.averageLossUsd)}</span>`,
+        `${pct(s.averageWinPct)} / ${pct(s.averageLossPct)}`),
+      stat("Exposure", `${s.openPositions}<span class="muted"> / ${lim.maxConcurrentPositions ?? 7}</span>`, `${s.exposurePct.toFixed(1)}% of bankroll · cap ${expMax}%`,
+        `<div class="meter"><i style="width:${clamp((s.exposurePct / expMax) * 100, 0, 100)}%"></i></div>`),
+      stat(fees === "exclude" ? "Fees excluded" : "Fees paid", usd(fees === "exclude" ? s.feesExcludedUsd ?? 0 : s.totalFeesUsd), st.avgHoldMs == null ? `${lim.perTradePctOfBankroll ?? "–"}% per trade` : `avg hold ${dur(st.avgHoldMs)}`),
+    ].join("");
+  }
+
+  /* ------------------------------------------------------------ equity chart */
+  function renderChart() {
+    const s = state.summary;
+    const svg = $("svg");
+    const all = (state.equity || []).filter((p) => fin(p.equity));
+    const pts = rangeMs ? all.filter((p) => p.t >= Date.now() - rangeMs) : all;
+    const W = Math.max(320, svg.clientWidth || 800), H = Math.max(280, svg.clientHeight || 280), padL = 58, padR = 14, padT = 14, padB = 28;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    if (pts.length < 2) {
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="var(--muted)" font-size="13">The equity curve fills in as samples arrive (one per minute).</text>`;
+      $("equityRange").textContent = ""; $("legend").innerHTML = "";
+      return;
+    }
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const start = s.startingBankrollUsd;
+    const vals = pts.map((p) => p.equity);
+    let lo = Math.min(start, ...vals), hi = Math.max(start, ...vals);
+    const padY = Math.max((hi - lo) * 0.18, start * 0.004);
+    lo -= padY; hi += padY;
+    const x = (t) => padL + ((t - t0) / Math.max(1, t1 - t0)) * (W - padL - padR);
+    const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+    const last = pts[pts.length - 1];
+    const color = last.equity >= start ? "var(--good)" : "var(--bad)";
+    let g = "";
+    for (let i = 0; i <= 4; i++) {
+      const v = lo + ((hi - lo) * i) / 4, yy = y(v).toFixed(1);
+      g += `<line x1="${padL}" x2="${W - padR}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/>`;
+      g += `<text x="${padL - 10}" y="${+yy + 4}" text-anchor="end" fill="var(--muted)" font-size="11" style="font-variant-numeric:tabular-nums">${usd(v, v >= 1000 ? 0 : 2)}</text>`;
+    }
+    const nx = clamp(Math.floor(W / 150), 2, 6);
+    const spanDays = (t1 - t0) > 36 * 3600_000;
+    for (let i = 0; i <= nx; i++) {
+      const t = t0 + ((t1 - t0) * i) / nx;
+      g += `<text x="${x(t)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === nx ? "end" : "middle"}" fill="var(--muted)" font-size="11">${spanDays ? dayTime(t) : hhmm(t)}</text>`;
+    }
+    const line = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.equity).toFixed(1)}`).join(" ");
+    const area = `${line} L${x(t1).toFixed(1)},${H - padB} L${x(t0).toFixed(1)},${H - padB} Z`;
+    svg.innerHTML = `<defs><linearGradient id="eg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity="0.20"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>` + g +
+      `<line x1="${padL}" x2="${W - padR}" y1="${y(start)}" y2="${y(start)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 5" opacity="0.7"/>` +
+      `<text x="${W - padR}" y="${y(start) - 6}" text-anchor="end" fill="var(--muted)" font-size="11">start ${usd(start, 0)}</text>` +
+      `<path d="${area}" fill="url(#eg)"/>` +
+      `<path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+      `<circle cx="${x(last.t)}" cy="${y(last.equity)}" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2"/>` +
+      `<line id="xh" y1="${padT}" y2="${H - padB}" stroke="var(--border-strong)" stroke-width="1" style="display:none"/>` +
+      `<circle id="xc" r="5" fill="${color}" stroke="var(--surface)" stroke-width="2" style="display:none"/>` +
+      `<rect x="${padL}" y="${padT}" width="${W - padL - padR}" height="${H - padT - padB}" fill="transparent" id="hit"/>`;
+
+    const hiPt = pts.reduce((a, p) => (p.equity > a.equity ? p : a)), loPt = pts.reduce((a, p) => (p.equity < a.equity ? p : a));
+    const chg = last.equity - pts[0].equity;
+    $("equityRange").textContent = `${hhmm(t0)} – ${hhmm(t1)}`;
+    $("legend").innerHTML = `<span>Change <b class="${tone(chg)}">${susd(chg)}</b></span><span>High <b>${usd(hiPt.equity)}</b></span><span>Low <b>${usd(loPt.equity)}</b></span><span>Samples <b>${pts.length}</b></span>`;
+
+    const tip = $("tip"), hit = svg.querySelector("#hit"), xh = svg.querySelector("#xh"), xc = svg.querySelector("#xc");
+    hit.onmousemove = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      const t = t0 + ((px - padL) / (W - padL - padR)) * (t1 - t0);
+      let best = pts[0];
+      for (const p of pts) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+      const cx = x(best.t), cy = y(best.equity);
+      xh.setAttribute("x1", cx); xh.setAttribute("x2", cx); xh.style.display = "";
+      xc.setAttribute("cx", cx); xc.setAttribute("cy", cy); xc.style.display = "";
+      const d = best.equity - start;
+      tip.innerHTML = `<div class="t">${dayTime(best.t)}</div><div class="v">${usd(best.equity)} <span class="${tone(d)}" style="font-size:12px">${susd(d)}</span></div><div class="muted">${best.open} open · cash ${usd(best.cash)}</div>`;
+      tip.style.display = "block";
+      const left = (cx / W) * r.width;
+      tip.style.left = clamp(left + 14, 4, r.width - tip.offsetWidth - 4) + "px";
+      tip.style.top = Math.max(4, (cy / H) * r.height - tip.offsetHeight - 12) + "px";
+    };
+    hit.onmouseleave = () => { tip.style.display = "none"; xh.style.display = "none"; xc.style.display = "none"; };
+  }
+  $("rangeSeg").onclick = (ev) => {
+    const b = ev.target.closest("button"); if (!b) return;
+    rangeMs = Number(b.dataset.range);
+    for (const x of $("rangeSeg").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+    if (state && state.summary) renderChart();
+  };
+
+  /* ------------------------------------------------------------ risk */
+  function renderRisk(s) {
+    const lim = s.limits || {};
+    $("entriesChip").innerHTML = s.circuitBreakerTripped ? `<span class="chip bad">Breaker tripped</span>`
+      : s.entriesAllowed ? `<span class="chip good">Entries on</span>` : `<span class="chip warn">Entries paused</span>`;
+    const tranche = ((s.equityUsd - s.startingBankrollUsd) / s.startingBankrollUsd) * 100;
+    const rows = [
+      ["Bankroll", usd(s.bankrollUsd)],
+      ["Cash", usd(s.cashUsd)],
+      ["Per trade", `${lim.perTradePctOfBankroll ?? "–"}% · ${usd(s.bankrollUsd * (lim.perTradePctOfBankroll ?? 0) / 100)}`],
+      ["Daily loss limit", `${lim.dailyLossLimitPct ?? "–"}% ${s.dailyLossLimitHit ? '<span class="pill-sm bad">hit</span>' : ""}`],
+      ["Circuit breaker", `${pct(tranche)} <span class="muted">of ${lim.drawdownCircuitBreakerPct ?? -30}%</span>`],
+    ].map(([k, v]) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+    const blocked = !s.entriesAllowed && s.entriesBlockedReason ? `<div class="row"><span class="down" style="font-size:12.5px">${esc(s.entriesBlockedReason)}</span></div>` : "";
+    const gates = (s.trancheGates || []).map((g) => `
+      <div class="gate">
+        <div class="gate-hd">${esc(g.name)}<span class="chip ${g.passed ? "good" : ""}">${g.passed ? "Passed" : "Not yet"}</span></div>
+        <ul>${g.details.map((d) => { const ok = d.startsWith("✓"); return `<li><span class="${ok ? "ok" : "no"}">${ok ? "✓" : "○"}</span>${esc(d.replace(/^[✓✗]\s*/, ""))}</li>`; }).join("")}</ul>
+      </div>`).join("");
+    $("risk").innerHTML = `<div class="rows">${rows}${blocked}</div><div class="section-label">Readiness gates</div>${gates}`;
+  }
+
+  /* ------------------------------------------------------------ positions */
+  function renderPositions(positions, s) {
+    const lim = s.limits || {};
+    $("posCount").textContent = `${positions.length} of ${lim.maxConcurrentPositions ?? 7}`;
+    if (!positions.length) {
+      $("positions").innerHTML = `<div class="empty">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+        <b>No open positions</b><span>The bot is watching ${s.funnel ? s.funnel.inBand : "–"} tokens in band for a breakout.</span></div>`;
+      return;
+    }
+    const now = state.serverTime;
+    $("positions").innerHTML = `<div class="positions">${positions.map((p) => positionCard(p, lim, now)).join("")}</div>`;
+  }
+
+  function positionCard(p, lim, now) {
+    const band = (lim.bands && lim.bands[p.band]) || { hardStopLossPct: -12, maxHoldMinutes: 45 };
+    const raw = ((p.lastPriceUsd - p.entryNetPriceUsd) / p.entryNetPriceUsd) * 100;
+    const gain = fin(p.effectiveGainPct) ? p.effectiveGainPct : raw;
+    const peak = fin(p.peakGainPct) ? p.peakGainPct : ((p.highestPriceUsd - p.entryNetPriceUsd) / p.entryNetPriceUsd) * 100;
+    const tiers = lim.tiers || [];
+    const trailGain = p.trailingActive && fin(p.trailingStopUsd) ? ((p.trailingStopUsd - p.entryNetPriceUsd) / p.entryNetPriceUsd) * 100 : null;
+    const lo = Math.min(band.hardStopLossPct, gain) - 3;
+    const hi = Math.max(tiers.length ? tiers[tiers.length - 1].gainPct : 30, peak, gain) + 6;
+    const X = (v) => clamp(((v - lo) / (hi - lo)) * 100, 0, 100);
+    const color = gain >= 0 ? "var(--good)" : "var(--bad)";
+    const zero = X(0), cur = X(gain);
+    const fill = `<span class="fill" style="left:${Math.min(zero, cur)}%;width:${Math.abs(cur - zero)}%;background:${color};opacity:.55"></span>`;
+    const marks = [
+      `<span class="mk stop" style="left:${X(band.hardStopLossPct)}%" title="Hard stop ${band.hardStopLossPct}%"></span><span class="lbl" style="left:${X(band.hardStopLossPct)}%">${band.hardStopLossPct}%</span>`,
+      `<span class="mk entry" style="left:${zero}%" title="Breakeven"></span><span class="lbl" style="left:${zero}%">0</span>`,
+      ...tiers.map((t, i) => `<span class="mk tier ${(p.tiersDone || 0) > i ? "done" : ""}" style="left:${X(t.gainPct)}%" title="Take profit ${i + 1}: +${t.gainPct}%"></span><span class="lbl" style="left:${X(t.gainPct)}%">+${t.gainPct}</span>`),
+      peak > gain + 0.5 ? `<span class="mk peak" style="left:${X(peak)}%" title="Peak ${pct(peak)}"></span>` : "",
+      trailGain != null ? `<span class="mk trail" style="left:${X(trailGain)}%" title="Trailing stop ${pct(trailGain)}"></span>` : "",
+    ].join("");
+    const heldMs = now - p.openedAt;
+    const maxHold = p.trailingActive ? (lim.strategy ? lim.strategy.maxHoldWhileTrailingMinutes : 240) : band.maxHoldMinutes;
+    const holdUse = clamp((heldMs / (maxHold * 60000)) * 100, 0, 100);
+    const staleS = Math.round((now - p.lastResolvedAt) / 1000);
+    const remaining = (p.tokensRemaining / p.tokensInitial) * 100;
+    return `<article class="pos">
+      <div class="pos-hd">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:8px"><span class="pos-sym">${esc(p.symbol)}</span><span class="band" title="Band ${p.band}">${esc(p.band)}</span>
+            ${p.trailingActive ? `<span class="pill-sm accent">Trailing</span>` : ""}${staleS > 20 ? `<span class="pill-sm bad">Price ${staleS}s old</span>` : ""}</div>
+          <div class="pos-addr">${esc(p.tokenAddress.slice(0, 4))}…${esc(p.tokenAddress.slice(-4))} · opened ${hhmm(p.openedAt)}</div>
+        </div>
+        <div class="pos-gain"><div class="g ${tone(gain)}">${pct(gain)}</div><div class="s">peak ${pct(peak)} · after costs</div></div>
+      </div>
+      <div class="ladder" aria-label="Gain ${pct(gain)} between stop ${band.hardStopLossPct}% and targets">
+        <span class="track"></span>${fill}${marks}
+        <span class="now" style="left:${cur}%;background:${color}"></span>
+      </div>
+      <div class="pos-ft">
+        <div><div class="k">Held</div><div class="v">${dur(heldMs)}</div><div class="meter ${holdUse > 85 ? "warn" : ""}" title="of ${maxHold} min limit"><i style="width:${holdUse}%"></i></div></div>
+        <div><div class="k">Left</div><div class="v">${remaining.toFixed(0)}%</div></div>
+        <div><div class="k">At cost</div><div class="v">${usd(p.costBasisRemainingUsd)}</div></div>
+        <div><div class="k">Banked</div><div class="v ${tone(p.realizedPnlUsd)}">${susd(p.realizedPnlUsd)}</div></div>
+      </div>
+    </article>`;
+  }
+
+  /* ------------------------------------------------------------ closed trades */
+  function renderClosed(trades) {
+    $("closedCount").textContent = trades.length ? `${trades.length} total` : "";
+    if (!trades.length) { $("closed").innerHTML = `<div class="empty"><b>No closed trades yet</b><span>Each closed trade shows how far it ran for and against you, to help tune the exits.</span></div>`; return; }
+    const rows = trades.slice().reverse().slice(0, 200).map((t) => `<tr>
+      <td class="muted">${dayTime(t.closedAt)}</td>
+      <td><span class="tok">${esc(t.symbol)}</span></td>
+      <td><span class="band">${esc(t.band)}</span></td>
+      <td class="num">${dur(t.closedAt - t.openedAt)}</td>
+      <td>${reasonPill(t.finalExitReason)}</td>
+      <td class="num ${fin(t.maxGainPct) ? tone(t.maxGainPct) : "muted"}">${fin(t.maxGainPct) ? pct(t.maxGainPct) : "–"}</td>
+      <td class="num ${fin(t.maxAdversePct) ? tone(t.maxAdversePct) : "muted"}">${fin(t.maxAdversePct) ? pct(t.maxAdversePct) : "–"}</td>
+      <td class="num"><b class="${tone(t.realizedPnlUsd)}">${susd(t.realizedPnlUsd)}</b></td>
+      <td class="num ${tone(t.realizedPnlPct)}">${pct(t.realizedPnlPct)}</td>
+    </tr>`).join("");
+    $("closed").innerHTML = `<table><thead><tr><th>Closed</th><th>Token</th><th>Band</th><th class="num">Held</th><th>Exit</th>
+      <th class="num" title="Best effective gain while open">Best</th><th class="num" title="Worst effective gain while open">Worst</th><th class="num">P&amp;L</th><th class="num">Return</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderReasons(trades) {
+    if (!trades.length) { $("reasons").innerHTML = `<div class="empty" style="padding:20px 0"><span>Exit reasons appear once trades close.</span></div>`; return; }
+    const by = new Map();
+    for (const t of trades) {
+      const k = t.finalExitReason;
+      const e = by.get(k) || { n: 0, pnl: 0, wins: 0 };
+      e.n += 1; e.pnl += t.realizedPnlUsd; if (t.realizedPnlUsd > 0) e.wins += 1;
+      by.set(k, e);
+    }
+    const max = Math.max(...[...by.values()].map((e) => e.n));
+    $("reasons").innerHTML = `<div class="bars">${[...by.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, e]) => {
+      const [label, kind] = REASONS[k] || [k, ""];
+      const col = kind === "good" ? "var(--good)" : kind === "bad" ? "var(--bad)" : kind === "warn" ? "var(--warn)" : kind === "accent" ? "var(--accent)" : "var(--muted)";
+      return `<div><div class="b-hd"><span>${esc(label)}</span><span class="n">${e.n} · ${e.wins} won</span><span class="v ${tone(e.pnl)}">${susd(e.pnl)}</span></div>
+        <div class="track"><i style="width:${(e.n / max) * 100}%;background:${col}"></i></div></div>`;
+    }).join("")}</div>`;
+  }
+
+  /* ------------------------------------------------------------ scanner */
+  function renderFunnel(s) {
+    const f = s.funnel || { inBand: 0, eligibleHistory: 0, onGateCooldown: 0, reasons: {} };
+    const b = s.limits && s.limits.bands;
+    $("scanSub").textContent = b ? `${mcap(b.A.marketCapMinUsd)}–${mcap(b.B.marketCapMaxUsd)} market cap` : "";
+    const top = Math.max(1, s.watchlistSize);
+    const steps = [
+      [s.watchlistSize, "Watching", "discovered on-chain"],
+      [f.inBand, "In band", "market cap in range"],
+      [f.eligibleHistory, "Eligible", "30 min clean history"],
+      [s.candidatesLastCycle, "Candidates", (s.candidateSymbols || []).slice(0, 3).join(", ") || "passed every entry check"],
+    ].map(([n, l, sub]) => `<div class="fstep"><span class="fill" style="width:${(n / top) * 100}%"></span><b>${n}</b><span class="l">${l}</span><span class="s">${esc(sub)}</span></div>`).join("");
+    const reasons = Object.entries(f.reasons || {}).sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...reasons.map((r) => r[1]));
+    const bars = reasons.map(([k, n]) => `<div class="r"><span class="l" title="${esc(k)}">${esc(k)}</span><span class="t"><i style="width:${(n / max) * 100}%"></i></span><span class="n">${n}</span></div>`).join("");
+    const cooldown = f.onGateCooldown || f.onReentryBlock ? `<div class="muted" style="font-size:12px;margin-top:10px">${f.onGateCooldown || 0} on security cooldown · ${f.onReentryBlock || 0} blocked from re-entry</div>` : "";
+    $("funnel").innerHTML = `<div class="funnel">${steps}</div>
+      <div class="section-label">Why in-band tokens were rejected</div>
+      <div class="reasons">${bars || `<span class="muted" style="font-size:12.5px">Nothing in band yet.</span>`}</div>${cooldown}`;
+  }
+
+  /* ------------------------------------------------------------ feed */
+  function kindOf(e) {
+    if (e.level === "trade") return "trade";
+    if (e.level === "warn" || e.level === "error") return "warn";
+    if (/^([v[d.]+] )?(signal|gate |entry aborted)/.test(e.msg)) return "signal";
+    return "info";
+  }
+  const KIND_PILL = { trade: '<span class="pill-sm accent">Trade</span>', signal: '<span class="pill-sm">Signal</span>', warn: '<span class="pill-sm warn">Warning</span>', info: '<span class="pill-sm">Info</span>' };
+  function renderFeed(events) {
+    const list = events.slice(-250).reverse().filter((e) => feedFilter === "all" || kindOf(e) === feedFilter);
+    if (!list.length) { $("feed").innerHTML = `<div class="empty"><span>${feedFilter === "all" ? "No activity yet. Signals, security checks, trades and warnings appear here." : "Nothing matching this filter yet."}</span></div>`; return; }
+    $("feed").innerHTML = list.map((e) => {
+      const k = kindOf(e);
+      const pill = e.level === "error" ? '<span class="pill-sm bad">Error</span>' : KIND_PILL[k];
+      return `<div class="ev ${k}"><span class="t">${clock(e.t)}</span><span class="kind">${pill}</span><span class="m">${esc(e.msg)}</span></div>`;
+    }).join("");
+  }
+  $("feedFilter").onclick = (ev) => {
+    const b = ev.target.closest("button"); if (!b) return;
+    feedFilter = b.dataset.f;
+    for (const x of $("feedFilter").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+    if (state) renderFeed(state.events || []);
+  };
+
+  /* ------------------------------------------------------------ strategy */
+  function renderStrategy(s) {
+    const lim = s.limits || {};
+    const st = lim.strategy;
+    const A = lim.bands && lim.bands.A, B = lim.bands && lim.bands.B;
+    $("stratSub").textContent = st ? `version ${st.version}` : "";
+    const tiers = (lim.tiers || []).map((t) => `${Math.round(t.sellFraction * 100)}% at +${t.gainPct}%`).join(", ");
+    const vol = (x) => (x && x.minVolume5mUsd != null ? `${Math.round(x.minVolume5mUsd / 100) / 10}k` : "–");
+    // A book may run a single band (v1.4): B then has no market-cap range (null in JSON).
+    const bOn = A && B && fin(B.marketCapMinUsd);
+    const ab = (fa, fb) => (bOn ? `A ${fa} · B ${fb}` : fa);
+    const rows = st ? [
+      ["Market cap", A ? `${mcap(A.marketCapMinUsd)}–${mcap(bOn ? B.marketCapMaxUsd : A.marketCapMaxUsd)}` : "–"],
+      ["Entry volume", A ? `5 min ≥ ${ab(vol(A), vol(B))}` : "–"],
+      ["Buy:sell", A && A.minBuySellRatio5m != null ? `≥ ${ab(A.minBuySellRatio5m, B && B.minBuySellRatio5m)}` : "–"],
+      ["New 30 min high", st.requireNewLocalHigh === false ? "not required" : "required"],
+      ["Entry move", `+${st.min5mChangePct}% to +${st.max5mChangePct}% in 5 min`],
+      ["Not extended", `≤ +${st.max1hChangePct}% over 1 h`],
+      ["Activity ramp", `≥ ${st.minTxAcceleration}× normal trading`],
+      ["Take profit", tiers ? `${tiers}, rest trails` : "–"],
+      ["Trailing stop", `arms +${lim.trailingActivationGainPct}%, ${st.trailingDistancePct}% → ${st.trailingDistanceTightPct}% trail`],
+      ["Trailing floor", `+${st.trailingFloorAboveEntryPct}% after costs`],
+      ["Hard stop", A ? ab(`${A.hardStopLossPct}%`, `${B && B.hardStopLossPct}%`) : "–"],
+      ["No follow-through", A ? `${ab(`${A.noFollowThroughMinutes}m`, `${B && B.noFollowThroughMinutes}m`)} (< +${st.noFollowThroughMinPeakGainPct}%)` : "–"],
+      ["Time limit", A ? `${ab(`${A.maxHoldMinutes}m`, `${B && B.maxHoldMinutes}m`)} · trailing ${st.maxHoldWhileTrailingMinutes}m` : "–"],
+      ["Position size", `${lim.perTradePctOfBankroll}% of bankroll · max ${lim.maxConcurrentPositions}`],
+    ] : [
+      ["Take profit", tiers || "–"],
+      ["Position size", `${lim.perTradePctOfBankroll ?? "–"}% of bankroll`],
+    ];
+    const half = Math.ceil(rows.length / 2);
+    const col = (rs) => `<div class="rows">${rs.map(([k, v]) => `<div class="row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join("")}</div>`;
+    $("strategy").innerHTML = col(rows.slice(0, half)) + col(rows.slice(half));
+  }
+
+  /* ------------------------------------------------------------ system */
+  function renderSystem(s) {
+    const r = s.refresh, api = s.apiCalls;
+    $("sysSub").textContent = `${s.cycleDurationMs ?? 0} ms per cycle`;
+    const rows = [
+      ["Scan interval", `${((s.limits && s.limits.scanIntervalMs) || 0) / 1000} s`],
+      r ? ["Tokens refreshed", `${r.due} this cycle${r.unresolved ? ` · <span class="down">${r.unresolved} unresolved</span>` : ""}`] : null,
+      r ? ["Refresh tiers", `${r.tiers.hot} hot · ${r.tiers.warm} warm · ${r.tiers.cold} cold`] : null,
+    ].filter(Boolean).map(([k, v]) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+    const apiRows = api ? Object.keys(api.total).filter((k) => api.total[k] > 0).sort((a, b) => api.total[b] - api.total[a])
+      .map((k) => `<tr><td>${esc(k)}</td><td class="num">${api.perMinute[k] ?? 0}</td><td class="num">${api.total[k].toLocaleString()}</td></tr>`).join("") : "";
+    $("system").innerHTML = `<div class="rows">${rows}</div>` +
+      (apiRows ? `<div class="section-label">API calls</div><div class="tablewrap" style="margin:0 -18px"><table><thead><tr><th>Service</th><th class="num">Per min</th><th class="num">Total</th></tr></thead><tbody>${apiRows}</tbody></table></div>` : "");
+  }
+
+  /* ------------------------------------------------------------ fills */
+  function renderFills(trades) {
+    $("fillCount").textContent = trades.length ? `${trades.length} fills` : "no fills yet";
+    if (!$("fillsBox").open) return;
+    if (!trades.length) { $("fills").innerHTML = `<div class="empty"><span>No simulated fills yet.</span></div>`; return; }
+    const kind = { entry: "accent", scaleout: "good", exit: "" };
+    const rows = trades.slice().reverse().map((e) => `<tr>
+      <td class="muted">${dayTime(e.timestamp)}</td>
+      <td><span class="pill-sm ${kind[e.eventType] ?? ""}">${esc(e.eventType)}</span></td>
+      <td><span class="tok">${esc(e.symbol)}</span></td>
+      <td class="num">${usd(e.sizeUsd)}</td>
+      <td class="num">${price(e.quotedPrice)} → ${price(e.netFillPrice)}</td>
+      <td class="num ${Math.abs(e.slippageRealizedPct) > 3 ? "down" : ""}">${pct(e.slippageRealizedPct, 2)}</td>
+      <td>${e.exitReason ? reasonPill(e.exitReason) : '<span class="muted">–</span>'}${e.fillSource === "fallback" ? ' <span class="pill-sm warn">fallback</span>' : ""}</td>
+      <td class="num">${e.realizedPnlUsd == null ? '<span class="muted">–</span>' : `<b class="${tone(e.realizedPnlUsd)}">${susd(e.realizedPnlUsd)}</b>`}</td>
+      <td class="num muted">${e.executionDelayMs} ms</td>
+    </tr>`).join("");
+    $("fills").innerHTML = `<table><thead><tr><th>Time</th><th>Type</th><th>Token</th><th class="num">Size</th><th class="num">Quoted → fill</th><th class="num">Slippage</th><th>Reason</th><th class="num">P&amp;L</th><th class="num">Delay</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  $("fillsBox").addEventListener("toggle", () => { if (state) renderFills(state.trades || []); });
+
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state && state.summary) renderChart(); }, 120); });
+  tick();
+})();
+</script>
+</body>
+</html>
