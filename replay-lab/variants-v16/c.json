@@ -1,0 +1,1 @@
+{ "name": "v1.5 + min age 24h", "set": { "BOOK.lab.minTokenAgeMinutes": 1440 } }

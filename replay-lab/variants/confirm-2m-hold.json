@@ -1,0 +1,1 @@
+{ "name": "confirm-2m-hold", "set": { "BOOK.lab.confirmSeconds": 120, "BOOK.lab.confirmMaxDropPct": 3 } }

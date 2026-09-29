@@ -1,0 +1,1 @@
+{ "name": "confirm-2m-no-drop", "set": { "BOOK.lab.confirmSeconds": 120, "BOOK.lab.confirmMaxDropPct": 0 } }

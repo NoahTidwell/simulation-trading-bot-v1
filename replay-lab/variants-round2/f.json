@@ -1,0 +1,1 @@
+{ "name": "confirm-2m+early-5m+cap-2", "set": { "BOOK.lab.confirmSeconds": 120, "BOOK.lab.confirmMaxDropPct": 3, "BOOK.lab.earlyExitMinutes": 5, "BOOK.lab.earlyExitLossPct": -10, "BOOK.lab.maxEntriesPerTokenPerDay": 2 } }

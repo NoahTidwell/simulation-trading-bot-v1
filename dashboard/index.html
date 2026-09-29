@@ -126,7 +126,8 @@
   .kpi-label { font-size: 12px; color: var(--muted); font-weight: 500; display: flex; align-items: center; gap: 6px; }
   .kpi-value { font-size: 28px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; }
   .kpi-sub { font-size: 12.5px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
-  .kpi .spark { position: absolute; right: 0; bottom: 0; width: 46%; height: 56px; opacity: 0.9; pointer-events: none; }
+  /* In the tile's own flow (not overlaid) so it can never sit on the text; bleeds to the card edges. */
+  .kpi .spark { display: block; width: calc(100% + 36px); height: 44px; margin: 2px -18px -16px; opacity: 0.9; pointer-events: none; }
   .delta { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .meter { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin-top: 4px; }
   .meter > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .5s ease; }
@@ -212,6 +213,20 @@
   /* ------------------------------------------------------------ tables */
   .tablewrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
+  /* P&L ledger */
+  .ledger { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 8px 28px; }
+  @media (max-width: 860px) { .ledger { grid-template-columns: 1fr; } }
+  .lrow { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .lrow .k { color: var(--ink-2); flex: 1; min-width: 0; }
+  .lrow .k small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .lrow .v { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .lrow.sub .k { padding-left: 16px; }
+  .lrow.total { border-bottom: 0; border-top: 1px solid var(--border-strong); font-weight: 600; }
+  .lrow.total .v { font-size: 15px; }
+  .ledger-side h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .ledger-side table td, .ledger-side table th { padding: 6px 8px; font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+  .ledger-side table td:first-child, .ledger-side table th:first-child { text-align: left; }
+  .ledger-side table th { color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); }
   th, td { text-align: left; padding: 10px 12px; white-space: nowrap; vertical-align: middle; }
   th { font-size: 11.5px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
   td { border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -283,11 +298,7 @@
     <div class="brand">
       <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M7 21l6-6 4 4 8-9" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h1>Momentum Bot</h1>
-      <div class="seg" id="bookSeg" role="group" aria-label="Strategy version">
-        <button type="button" data-book="v1.2" aria-pressed="true" title="v1.2 — the main strategy">v1.2</button>
-        <button type="button" data-book="v1.3" aria-pressed="false" title="v1.3 — parallel paper strategy with looser entry rules">v1.3</button>
-        <button type="button" data-book="v1.4" aria-pressed="false" title="v1.4 — micro caps ($100k–$1M) with wide stops and long-running winners">v1.4</button>
-      </div>
+      <div class="seg" id="bookSeg" role="group" aria-label="Strategy version"></div>
       <div class="seg" id="feeSeg" role="group" aria-label="Fixed fees">
         <button type="button" data-fees="exclude" aria-pressed="true" title="P&amp;L without the fixed SOL fees (priority fee + Jito tip). Pool fees and price impact are still included.">No fees</button>
         <button type="button" data-fees="include" aria-pressed="false" title="P&amp;L as simulated, including the fixed SOL fees paid on each fill">With fees</button>
@@ -318,6 +329,11 @@
 
   <section class="card" aria-label="Secondary statistics">
     <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="card" aria-label="Where the P&amp;L comes from">
+    <div class="card-hd"><h2>Where the P&amp;L comes from</h2><span class="sub" id="ledgerSub"></span></div>
+    <div class="card-bd" id="ledger"></div>
   </section>
 
   <!-- Equity + status -->
@@ -420,7 +436,7 @@
   const POLL_MS = 4000;
   let state = null;
 
-  /* Strategy book: v1.2 (main) or v1.3 (parallel paper strategy). Remembered per browser. */
+  /* Strategy book: v1.3, v1.4 or v1.5 (v1.2 was sunset on 2026-09-27). Remembered per browser. */
   /* Fixed fees (priority fee + Jito tip): excluded by default while strategies are tuned. */
   const FEES_KEY = "momentum-dash-fees";
   let fees = "exclude";
@@ -439,16 +455,16 @@
   syncFeeSeg();
 
   const BOOK_KEY = "momentum-dash-book";
-  let book = "v1.2";
-  try { book = localStorage.getItem(BOOK_KEY) || "v1.2"; } catch { /* storage unavailable */ }
+  // The book list comes from the server (data/books.json); an unknown saved book falls back to the server default.
+  let book = "";
+  try { book = localStorage.getItem(BOOK_KEY) || ""; } catch { /* storage unavailable */ }
   function syncBookSeg(books) {
-    for (const b of document.querySelectorAll("#bookSeg button")) {
-      b.setAttribute("aria-pressed", String(b.dataset.book === book));
-      const info = (books || []).find((x) => x.id === b.dataset.book);
-      const off = info ? !info.available : false;
-      b.disabled = off && b.dataset.book !== book;
-      if (off) b.title = `${b.dataset.book} has no data yet — is the bot running it?`;
+    if (!books) {
+      for (const b of document.querySelectorAll("#bookSeg button")) b.setAttribute("aria-pressed", String(b.dataset.book === book));
+      return;
     }
+    const seg = document.getElementById("bookSeg");
+    seg.innerHTML = books.map((x) => `<button type="button" data-book="${esc(x.id)}" aria-pressed="${x.id === book}" title="${esc(x.id + " — " + (x.description || "") + (x.available ? "" : " (no data yet — is the bot running it?)"))}"${!x.available && x.id !== book ? " disabled" : ""}>${esc(x.id)}</button>`).join("");
   }
   document.getElementById("bookSeg").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-book]");
@@ -495,7 +511,7 @@
     takeProfitTier1: ["Take profit 1", "good"], takeProfitTier2: ["Take profit 2", "good"], takeProfitTier3: ["Take profit 3", "good"],
     takeProfitFinal: ["Take profit", "good"], trailingStop: ["Trailing stop", "accent"], hardStop: ["Hard stop", "bad"],
     noFollowThrough: ["No follow-through", "warn"], maxHoldTime: ["Time limit", ""], velocityEjection: ["Velocity", "warn"],
-    stalePrice: ["Stale price", "bad"], securityReflag: ["Security", "bad"],
+    stalePrice: ["Stale price", "bad"], securityReflag: ["Security", "bad"], earlyLoss: ["Early exit", "warn"],
   };
   const reasonPill = (r) => { const [label, k] = REASONS[r] || [r || "–", ""]; return `<span class="pill-sm ${k}">${esc(label)}</span>`; };
 
@@ -507,6 +523,7 @@
       const next = await res.json();
       if (want !== book || wantFees !== fees) return; // switched while this request was in flight
       state = next;
+      if (state.book && state.book !== book) { book = state.book; try { localStorage.setItem(BOOK_KEY, book); } catch { /* ignore */ } }
       syncBookSeg(state.books);
       render();
     } catch {
@@ -538,6 +555,7 @@
     const st = tradeStats(closed);
     renderKpis(s, st);
     renderStats(s, st);
+    renderLedger(s, state.closedTrades || [], state.positions || []);
     renderChart();
     renderRisk(s);
     renderPositions(state.positions || [], s);
@@ -628,6 +646,51 @@
     return `<div><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div>${extra}</div>`;
   }
 
+  /* ------------------------------------------------------------ P&L ledger */
+  // Reconciles every P&L figure on the page from the trades themselves:
+  // closed trades + partial sells on open positions = realized; open positions
+  // at their last price = unrealized; start + realized + unrealized = equity.
+  function renderLedger(s, closed, positions) {
+    const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+    const wins = closed.filter((t) => t.realizedPnlUsd > 0), losses = closed.filter((t) => t.realizedPnlUsd <= 0);
+    const closedPnl = sum(closed.map((t) => t.realizedPnlUsd));
+    const partials = sum(positions.map((p) => p.realizedPnlUsd || 0));
+    const realized = closedPnl + partials;
+    const rows = positions.map((p) => {
+      const value = p.tokensRemaining * p.lastPriceUsd;
+      // What selling now would actually return, after estimated exit costs (the effective gain).
+      const net = fin(p.effectiveGainPct) ? p.tokensRemaining * p.entryNetPriceUsd * (1 + p.effectiveGainPct / 100) : value;
+      return { sym: p.symbol, basis: p.costBasisRemainingUsd, value, un: value - p.costBasisRemainingUsd, unNet: net - p.costBasisRemainingUsd, part: p.realizedPnlUsd || 0 };
+    });
+    const unrealized = sum(rows.map((r) => r.un));
+    const unNet = sum(rows.map((r) => r.unNet));
+    const net = realized + unrealized;
+    const equity = s.startingBankrollUsd + net;
+    const off = Math.abs(equity - s.equityUsd) > 0.05; // summary vs trade files written a moment apart
+    const feeNote = fees === "exclude"
+      ? "Fixed fees excluded — fees paid shown as $0.00"
+      : `Includes ${usd(s.totalFeesUsd ?? 0)} of fixed fees paid`;
+    const L = (k, v, cls = "", note = "") => `<div class="lrow ${cls}"><span class="k">${k}${note ? `<small>${note}</small>` : ""}</span><span class="v">${v}</span></div>`;
+    const val = (n) => `<span class="${tone(n)}">${susd(n)}</span>`;
+    $("ledgerSub").textContent = feeNote;
+    const left = [
+      L("Starting bankroll", usd(s.startingBankrollUsd)),
+      L(`Closed trades · ${closed.length}`, val(closedPnl), "sub", `${wins.length} won ${susd(sum(wins.map((t) => t.realizedPnlUsd)))} · ${losses.length} lost ${susd(sum(losses.map((t) => t.realizedPnlUsd)))}`),
+      L("Partial sells on open positions", val(partials), "sub", "take-profits already banked on positions still running"),
+      L("Realized", val(realized), "total"),
+      L(`Open positions · ${positions.length}`, val(unrealized), "sub", `at last price · if sold now, after est. exit costs: ${susd(unNet)}`),
+      L("Net P&amp;L", val(net), "total", "realized + open"),
+      L("Equity", usd(equity) + (off ? ` <span class="muted" title="Summary shows ${usd(s.equityUsd)} — prices moved between the two file writes">≈</span>` : ""), "", "starting bankroll + net P&amp;L"),
+      L("Today · realized (UTC)", val(s.dailyRealizedPnlUsd), "", "only sold P&amp;L counts toward the daily loss limit"),
+    ].join("");
+    const right = positions.length
+      ? `<h3>Open positions</h3><div class="tablewrap"><table><thead><tr><th>Token</th><th>Cost basis</th><th>Value now</th><th>Open P&amp;L</th><th>If sold now</th><th>Banked</th></tr></thead><tbody>${
+          rows.map((r) => `<tr><td>${esc(r.sym)}</td><td>${usd(r.basis)}</td><td>${usd(r.value)}</td><td>${val(r.un)}</td><td>${val(r.unNet)}</td><td>${r.part ? val(r.part) : "–"}</td></tr>`).join("")
+        }</tbody></table></div>`
+      : `<h3>Open positions</h3><p class="muted" style="font-size:12.5px;margin:6px 0">None open — realized P&amp;L is the whole story.</p>`;
+    $("ledger").innerHTML = `<div class="ledger"><div>${left}</div><div class="ledger-side">${right}</div></div>`;
+  }
+
   function renderStats(s, st) {
     const lim = s.limits || {};
     const dayLimit = lim.dailyLossLimitPct ?? -15;
@@ -645,7 +708,8 @@
         `${pct(s.averageWinPct)} / ${pct(s.averageLossPct)}`),
       stat("Exposure", `${s.openPositions}<span class="muted"> / ${lim.maxConcurrentPositions ?? 7}</span>`, `${s.exposurePct.toFixed(1)}% of bankroll · cap ${expMax}%`,
         `<div class="meter"><i style="width:${clamp((s.exposurePct / expMax) * 100, 0, 100)}%"></i></div>`),
-      stat(fees === "exclude" ? "Fees excluded" : "Fees paid", usd(fees === "exclude" ? s.feesExcludedUsd ?? 0 : s.totalFeesUsd), st.avgHoldMs == null ? `${lim.perTradePctOfBankroll ?? "–"}% per trade` : `avg hold ${dur(st.avgHoldMs)}`),
+      // In the No-fees view fixed fees count as $0.00 for every book (the server zeroes totalFeesUsd).
+      stat("Fees paid", usd(fees === "exclude" ? 0 : s.totalFeesUsd), st.avgHoldMs == null ? `${lim.perTradePctOfBankroll ?? "–"}% per trade` : `avg hold ${dur(st.avgHoldMs)}`),
     ].join("");
   }
 

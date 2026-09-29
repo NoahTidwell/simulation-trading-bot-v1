@@ -7,7 +7,9 @@
 //   npx tsx scripts/replay.ts --from 2026-09-25 --to 2026-09-28
 //   npx tsx scripts/replay.ts --set EXIT.tiers.1.gainPct=25    baseline vs one change
 //   npx tsx scripts/replay.ts --variant variants/foo.json ...  baseline vs each file
-//   options: --trades (list every trade)  --ungated pass|skip  --slip 0.5  --sol-usd 115
+//   options: --json out.json (machine-readable results for the Replay Lab page)
+//            --start-at 2026-09-26T05:16Z (no entries before this; earlier data only warms up price history)
+//            --trades (list every trade)  --ungated pass|skip  --slip 0.5  --sol-usd 115
 //            --book v1.3 | v1.4  (replay that book's entry + exit rules; BAND_PARAMS/EXIT overrides then don't apply — use BOOK.*)
 //
 // A variant file is JSON: { "name": "tp2-25", "set": { "EXIT.tiers.1.gainPct": 25 } }
@@ -38,6 +40,7 @@ import { classifyBand } from "../src/strategy/bands";
 import { evaluateEntryFilter } from "../src/strategy/entry-filter";
 import { checkVelocitySpike, isPriceStale, pushSample } from "../src/strategy/ejection-triggers";
 import { evaluateExitRules } from "../src/strategy/exit-rules";
+import { ConfirmGate, overEntryCap } from "../src/strategy/lab-rules";
 import { sizeNewPosition } from "../src/strategy/position-sizer";
 import { computeEntryFill, computeExitFill, solToLamports, toRawAmount } from "../src/simulation/cost-model";
 import type { ExitReason, MarketSnapshot, Position, SecurityGateResult, WatchedToken } from "../src/types";
@@ -65,7 +68,9 @@ const UNGATED = (flag("--ungated") ?? "skip") as "skip" | "pass";
 const SLIP_PCT = Number(flag("--slip") ?? 0.5);
 const SOL_USD = Number(flag("--sol-usd") ?? 115);
 const LIST_TRADES = argv.includes("--trades");
-const BOOK = { "v1.3": C.PROFILE_V13, "v1.4": C.PROFILE_V14 }[flag("--book") ?? ""] ?? C.PROFILE_V12;
+const JSON_OUT = flag("--json");
+const START_AT = flag("--start-at") ? Date.parse(flag("--start-at") as string) : 0;
+const BOOK = { "v1.3": C.PROFILE_V13, "v1.4": C.PROFILE_V14, "v1.5": C.PROFILE_V15, "v1.6": C.PROFILE_V16 }[flag("--book") ?? ""] ?? C.PROFILE_V12;
 const TICK_MS = 1_000;
 const FILL_DELAY_MS = (C.SIM.executionDelayMinMs + C.SIM.executionDelayMaxMs) / 2;
 const GATE_MATCH_MS = 12 * 3_600_000;
@@ -199,6 +204,7 @@ interface RunResult {
   ungatedSignals: Set<string>;
   gateRejects: number;
   entryAborts: number;
+  confirmRejects: number;
   firstT: number;
   lastT: number;
 }
@@ -218,13 +224,25 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
 
   const tokens = new Map<string, WatchedToken>();
   const meta = new Map<string, { symbol: string; pairAddress: string; dexId: string; pairCreatedAt: number | null }>();
-  const lastPrice = new Map<string, { p: number; t: number }>();
+  const lastPrice = new Map<string, { p: number; t: number }>(); // DexScreener snapshots
+  // Jupiter sell quotes (recorded ~1/s for positions the live bot held). Snapshots can lag the chain by
+  // 20+ s: during the XDP rug a stale pre-crash snapshot arrived after the crash quote and the replay
+  // booked a −99% exit as +133%. Live exits fill at the quote, so a fresh quote always wins.
+  const lastQuote = new Map<string, { p: number; t: number }>();
+  const QUOTE_FRESH_MS = 10_000;
+  function priceNow(mint: string, now: number): { p: number; t: number } | null {
+    const q = lastQuote.get(mint);
+    if (q && now - q.t <= QUOTE_FRESH_MS) return q;
+    return lastPrice.get(mint) ?? null;
+  }
   const gateCooldown = new Map<string, number>();
   const pending: (PendingEntry | PendingExit)[] = [];
   const busy = new Set<string>(); // mints with a pending fill
   const ungatedSignals = new Set<string>();
   let gateRejects = 0;
   let entryAborts = 0;
+  let confirmRejects = 0;
+  const confirm = new ConfirmGate(); // wait-and-confirm clocks (shared logic with the live bot)
   let clock = 0;
   let nextScanAt = 0;
   let firstT = 0;
@@ -242,13 +260,13 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
     return best?.g ?? null;
   }
 
-  function fillPrice(mint: string): number | null {
-    return lastPrice.get(mint)?.p ?? null;
+  function fillPrice(mint: string, now: number): number | null {
+    return priceNow(mint, now)?.p ?? null;
   }
 
   function doExit(pe: PendingExit, now: number): void {
     const { position } = pe;
-    const price = fillPrice(position.tokenAddress) ?? position.lastPriceUsd;
+    const price = fillPrice(position.tokenAddress, now) ?? position.lastPriceUsd;
     const gross = price * (1 - SLIP_PCT / 100);
     const tokensSold = Math.min(pe.tokens, position.tokensRemaining);
     const fraction = position.tokensRemaining > 0 ? tokensSold / position.tokensRemaining : 0;
@@ -264,7 +282,7 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
   }
 
   function doEntry(pe: PendingEntry, now: number): void {
-    const price = fillPrice(pe.mint);
+    const price = fillPrice(pe.mint, now);
     if (price === null) return;
     const gross = price * (1 + SLIP_PCT / 100);
     const deviation = ((gross - pe.snap.priceUsd) / pe.snap.priceUsd) * 100;
@@ -292,8 +310,8 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
   function managePositions(now: number): void {
     for (const position of portfolio.openPositions().slice()) {
       if (busy.has(position.tokenAddress)) continue;
-      const lp = lastPrice.get(position.tokenAddress);
-      if (lp && lp.t > position.lastResolvedAt) {
+      const lp = priceNow(position.tokenAddress, now);
+      if (lp && (lp.t > position.lastResolvedAt || lp.p !== position.lastPriceUsd)) {
         position.lastPriceUsd = lp.p;
         position.lastResolvedAt = lp.t;
         if (lp.p > position.highestPriceUsd) position.highestPriceUsd = lp.p;
@@ -328,6 +346,13 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
       const band = classifyBand(snap.marketCapUsd, BOOK.bands);
       if (!band) continue;
       if (!evaluateEntryFilter(token, snap, band, now, BOOK).passed) continue;
+      const lab = BOOK.lab;
+      if (lab && overEntryCap(lab, portfolio.entriesOnToken(token.tokenAddress, now - 24 * 3_600_000))) continue;
+      if (lab) {
+        const { result } = confirm.check(lab, token.tokenAddress, snap.priceUsd, now);
+        if (result === "fail") confirmRejects += 1;
+        if (result !== "pass") continue;
+      }
       candidates.push({ token, snap, band });
     }
     if (candidates.length === 0 || !risk.canOpenNewEntries().allowed) return;
@@ -385,7 +410,7 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
     risk.evaluate(portfolio, now);
     if (now >= nextScanAt) {
       nextScanAt = now + C.RUNTIME.scanIntervalMs;
-      scanEntries(now);
+      if (now >= START_AT) scanEntries(now);
     }
   }
 
@@ -430,8 +455,8 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
       if (!prev || t >= prev.t) lastPrice.set(mint, { p: price, t });
     } else if (kind === "q") {
       const price = r[3] as number;
-      const prev = lastPrice.get(mint);
-      if (price > 0 && (!prev || t >= prev.t)) lastPrice.set(mint, { p: price, t });
+      const prev = lastQuote.get(mint);
+      if (price > 0 && (!prev || t >= prev.t)) lastQuote.set(mint, { p: price, t });
     }
   }
 
@@ -453,7 +478,7 @@ function runVariant(v: Variant, files: string[], gates: Map<string, { t: number;
   }
   // Drain pending fills; open positions are left open and reported.
   for (let i = 0; i < 10 && pending.length > 0; i++) tick((clock += TICK_MS));
-  return { name: v.name, portfolio, ungatedSignals, gateRejects, entryAborts, firstT, lastT };
+  return { name: v.name, portfolio, ungatedSignals, gateRejects, entryAborts, confirmRejects, firstT: Math.max(firstT, START_AT), lastT };
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +539,25 @@ function main(): void {
   }
   if (r0.ungatedSignals.size > 0) {
     console.log(`\nsignals with no recorded security verdict (${UNGATED === "skip" ? "skipped" : "assumed to pass"}): ${Array.from(r0.ungatedSignals).slice(0, 15).join(", ")}${r0.ungatedSignals.size > 15 ? ", …" : ""}`);
+  }
+
+  if (JSON_OUT) {
+    const out = {
+      generatedAt: Date.now(), book: BOOK.id, from: r0.firstT, to: r0.lastT, slipPct: SLIP_PCT, live,
+      variants: results.map((r, i) => {
+        const p = r.portfolio, s = p.stats(), net = p.realizedPnlUsd();
+        return {
+          name: r.name, set: variants[i].set, trades: s.tradeCount, winRatePct: s.winRatePct, netUsd: net,
+          netPct: (net / p.startingBankrollUsd) * 100, maxDrawdownPct: p.maxDrawdownPct, open: p.openPositions().length,
+          confirmRejects: r.confirmRejects,
+          closed: p.closedTrades.map((t) => ({ openedAt: t.openedAt, closedAt: t.closedAt, symbol: t.symbol, pnl: t.realizedPnlUsd, pct: t.realizedPnlPct, peakPct: t.maxGainPct, reason: t.finalExitReason })),
+        };
+      }),
+    };
+    fs.mkdirSync(path.dirname(path.resolve(JSON_OUT)), { recursive: true });
+    fs.writeFileSync(JSON_OUT, JSON.stringify(out));
+    console.log(`
+wrote ${JSON_OUT}`);
   }
 
   if (LIST_TRADES) {

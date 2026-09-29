@@ -235,13 +235,9 @@ export const EXIT = {
  * parallel paper strategy aimed at ~50 trades/day, run side by side on the same
  * market data so the two can be compared directly (data/v1.3/). Recordings
  * showed v1.2's rules produce ~6 pre-gate signals/day; v1.3's loosened entry
- * produced ~70/day across export const WATCH_ONLY_MIN_MARKET_CAP_USD = envNum("WATCH_ONLY_MIN_MARKET_CAP_USD", 1_000_000);
-–100M:
- *   - band A floor export const WATCH_ONLY_MIN_MARKET_CAP_USD = envNum("WATCH_ONLY_MIN_MARKET_CAP_USD", 1_000_000);
-0M → export const WATCH_ONLY_MIN_MARKET_CAP_USD = envNum("WATCH_ONLY_MIN_MARKET_CAP_USD", 1_000_000);
-M (liquidity floor unchanged)
- *   - 5m volume floor × 0.6 (A $8k → $4.8k, B $20k → export const WATCH_ONLY_MIN_MARKET_CAP_USD = envNum("WATCH_ONLY_MIN_MARKET_CAP_USD", 1_000_000);
-2k)
+ * produced ~70/day across $1M–100M:
+ *   - band A floor $10M → $1M (liquidity floor unchanged)
+ *   - 5m volume floor × 0.6 (A $8k → $4.8k, B $20k → $12k)
  *   - buy:sell ≥ 1.2 in both bands (A 1.6, B 1.5)
  *   - no "new 30-minute high" requirement
  * Exit rules, sizing, risk limits and the security gate are identical.
@@ -249,6 +245,7 @@ M (liquidity floor unchanged)
 export const PROFILE_V12: StrategyProfile = {
   id: "v1.2",
   version: STRATEGY_VERSION,
+  description: "Original book: $10M–100M coins, requires a new 30-minute high (retired 2026-09-27)",
   bands: BAND_PARAMS, // the live object, so scripts/replay.ts overrides apply
   requireNewLocalHigh: true,
   exit: EXIT, // the live object, so replay overrides apply
@@ -259,6 +256,7 @@ export const PROFILE_V12: StrategyProfile = {
 export const PROFILE_V13: StrategyProfile = {
   id: "v1.3",
   version: "1.3",
+  description: "v1.2 with looser entry rules on $1M–100M coins (retired 2026-09-28)",
   bands: {
     A: { ...BAND_PARAMS.A, marketCapMinUsd: 1_000_000, minVolume5mUsd: BAND_PARAMS.A.minVolume5mUsd * 0.6, minBuySellRatio5m: 1.2 },
     B: { ...BAND_PARAMS.B, minVolume5mUsd: BAND_PARAMS.B.minVolume5mUsd * 0.6, minBuySellRatio5m: 1.2 },
@@ -298,6 +296,7 @@ const V14_EXIT: ExitParams = {
 export const PROFILE_V14: StrategyProfile = {
   id: "v1.4",
   version: "1.4",
+  description: "Micro caps ($100k–$1M) with wide stops and long-running winners",
   bands: {
     A: {
       ...BAND_PARAMS.A,
@@ -314,13 +313,66 @@ export const PROFILE_V14: StrategyProfile = {
   exit: V14_EXIT,
   startingBankrollUsd: envNum("V14_STARTING_BANKROLL_USD", 500),
   dataSubdir: "v1.4",
+  // All off: v1.4 trades exactly as before. scripts/replay.ts --book v1.4 switches these on per variant.
+  lab: { confirmSeconds: 0, confirmMaxDropPct: 3, earlyExitMinutes: 0, earlyExitLossPct: -10, maxEntriesPerTokenPerDay: 0, minTokenAgeMinutes: 0 },
 };
 
-/** Books the bot runs. V13_ENABLED=off / V14_ENABLED=off drop those books. */
+/**
+ * v1.5 (added 2026-09-27): v1.4's market band, filters and exits, plus the three
+ * rules that won the replay lab (46 h of recordings, 13 variants: +$80.15 vs the
+ * v1.4 baseline's +$4.98, max drawdown −5.5% vs −21.4%, 1 hard stop vs 17):
+ *   - wait 2 minutes after a signal; buy only if the token still qualifies and
+ *     its price has not dipped more than 3% below the signal price
+ *   - sell early when a trade is down 10% or more after 5 minutes (before the −25% stop)
+ *   - at most 2 entries per token in any rolling 24 h
+ */
+export const PROFILE_V15: StrategyProfile = {
+  ...PROFILE_V14,
+  id: "v1.5",
+  version: "1.5",
+  description: "v1.4 + 2-minute confirm wait, early exit at −10% after 5 min, max 2 trades per coin per day",
+  exit: { ...V14_EXIT },
+  startingBankrollUsd: envNum("V15_STARTING_BANKROLL_USD", 500),
+  dataSubdir: "v1.5",
+  lab: { confirmSeconds: 120, confirmMaxDropPct: 3, earlyExitMinutes: 5, earlyExitLossPct: -10, maxEntriesPerTokenPerDay: 2, minTokenAgeMinutes: 0 },
+};
+
+/**
+ * v1.6 (added 2026-09-28): v1.5 plus a 2-hour minimum pair age. All three rug
+ * pulls so far (Pokémon, XDP, Mewania) were pump.fun coins 65–94 minutes old
+ * that had already risen 8–14× in their first hour; across 120 live v1.4/v1.5
+ * trades, coins under 2 h old went 2 wins in 13 (−$71, 10 hard stops). Replay
+ * over 64 h (rug exits priced from sell quotes, 1% slippage): +$13.64 vs v1.5's
+ * −$16.72, max drawdown −10.1% vs −15.1%, no rugs; it blocked only XDP,
+ * Mewania and swordcat. (A 24 h minimum was close, +$12.28, but halves trades.)
+ */
+export const PROFILE_V16: StrategyProfile = {
+  ...PROFILE_V15,
+  id: "v1.6",
+  version: "1.6",
+  description: "v1.5 + 2-hour minimum coin age (skips freshly launched pump.fun coins)",
+  exit: { ...V14_EXIT },
+  startingBankrollUsd: envNum("V16_STARTING_BANKROLL_USD", 500),
+  dataSubdir: "v1.6",
+  lab: { ...(PROFILE_V15.lab as NonNullable<StrategyProfile["lab"]>), minTokenAgeMinutes: 120 },
+};
+
+/** Every book ever defined, oldest first (the replay can run any of them). */
+export const ALL_PROFILES: StrategyProfile[] = [PROFILE_V12, PROFILE_V13, PROFILE_V14, PROFILE_V15, PROFILE_V16];
+
+/**
+ * Books the bot runs. This list is the single source of truth: at startup the bot writes it to
+ * data/books.json, which the dashboards, report cards and alerts read. Retired books stay on
+ * disk and can be revived with their env switch: v1.2 (retired 2026-09-27) with V12_ENABLED=on,
+ * v1.3 (retired 2026-09-28: lost ~$19/day, and its $1M–100M coins are still recorded for replay)
+ * with V13_ENABLED=on. V14_ENABLED / V15_ENABLED / V16_ENABLED=off drop those books.
+ */
 export const PROFILES: StrategyProfile[] = [
-  PROFILE_V12,
-  ...(envStr("V13_ENABLED", "on") === "off" ? [] : [PROFILE_V13]),
+  ...(envStr("V12_ENABLED", "off") === "on" ? [PROFILE_V12] : []),
+  ...(envStr("V13_ENABLED", "off") === "on" ? [PROFILE_V13] : []),
   ...(envStr("V14_ENABLED", "on") === "off" ? [] : [PROFILE_V14]),
+  ...(envStr("V15_ENABLED", "on") === "off" ? [] : [PROFILE_V15]),
+  ...(envStr("V16_ENABLED", "on") === "off" ? [] : [PROFILE_V16]),
 ];
 
 
@@ -399,8 +451,14 @@ export const REENTRY = {
    * hour repeatedly for a combined -$27.50.
    */
   afterAnyExitMinutes: 120,
-  /** After these exit reasons, the token is excluded for the rest of the UTC day. */
+  /**
+   * After these exit reasons, the token is blocked for badExitBlockHours.
+   * Was "until the end of the UTC day" until 2026-09-27: UTC midnight is 7 PM
+   * Central, so a hard stop at 4:59 PM expired two hours later and v1.4
+   * re-bought VAULT at 8:48 PM for a second −27.5%. Now a rolling window.
+   */
   excludeForDayReasons: ["hardStop", "velocityEjection", "securityReflag", "stalePrice"] as const,
+  badExitBlockHours: 24,
   /**
    * Repeat losers: a token with this many losing trades inside the window is
    * blocked for blockHours. PAID was traded 10 times in v1 for -$13.43 — a
@@ -500,7 +558,8 @@ export const RUNTIME = {
   },
   /** State-file write throttles (trade events always persist immediately). */
   watchlistSaveIntervalMs: 90_000,
-  portfolioSaveIntervalMs: 60_000,
+  /** 60 s → 5 s on 2026-09-26: the dashboard's positions table read prices up to a minute older than the summary. */
+  portfolioSaveIntervalMs: 5_000,
   logLevel: envStr("LOG_LEVEL", "info") as "debug" | "info" | "warn",
 } as const;
 
@@ -574,7 +633,8 @@ export const WATCHLIST_SEED_MINTS = envList("WATCHLIST_MINTS");
 // Paths
 // ---------------------------------------------------------------------------
 
-const dataDir = path.join(PROJECT_ROOT, "data");
+export const DATA_DIR = path.join(PROJECT_ROOT, "data");
+const dataDir = DATA_DIR;
 export const PATHS = {
   dataDir,
   tradesDir: path.join(dataDir, "trades"),

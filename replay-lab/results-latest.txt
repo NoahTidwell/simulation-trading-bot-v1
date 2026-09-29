@@ -1,0 +1,19 @@
+replaying 2 recording file(s): market-2026-09-26.jsonl.gz, market-2026-09-27.jsonl.gz
+entry rules: v1.4
+fills 3s after decision, slip 1%/side, SOL $115, ungated signals: skip
+
+period 2026-09-26 05:16 → 2026-09-27 23:59 UTC (42.7 h)
+live bot, same period: 68 trades, 24 wins, -17.88 USD (calibration check for the baseline)
+
+variant                            trades  win%    net $  net %  maxDD% open ungated  exits
+baseline                               65    37   -11.72   -2.3   -19.4    1       1  noFollowThrough 24, maxHoldTime 18, hardStop 13, trailingStop 7, velocityEjection 2, stalePrice 1
+all-four                               27    44    28.91    5.8    -6.6    1       2  trailingStop 9, noFollowThrough 6, earlyLoss 5, maxHoldTime 3, stalePrice 2, hardStop 2
+cap-2-per-coin-day                     55    38     0.15    0.0   -17.2    1       2  noFollowThrough 20, maxHoldTime 13, hardStop 12, trailingStop 7, velocityEjection 2, stalePrice 1
+confirm-2m-hold                        26    38    29.08    5.8    -8.0    2       2  noFollowThrough 9, maxHoldTime 7, trailingStop 4, hardStop 3, stalePrice 2, velocityEjection 1
+early-exit-3m-8                        66    29    -7.55   -1.5   -14.3    1       1  earlyLoss 35, maxHoldTime 12, noFollowThrough 11, trailingStop 4, velocityEjection 2, stalePrice 1, hardStop 1
+early-exit-5m-10                       67    31    10.14    2.0   -16.3    1       1  earlyLoss 28, noFollowThrough 15, maxHoldTime 14, trailingStop 6, velocityEjection 2, stalePrice 1, hardStop 1
+trail-at-20                            65    38   -23.93   -4.8   -18.0    1       1  noFollowThrough 24, trailingStop 19, hardStop 13, maxHoldTime 8, stalePrice 1
+
+signals with no recorded security verdict (skipped): SHARTCOIN UpBBfy
+
+wrote replay-lab/results/latest.json

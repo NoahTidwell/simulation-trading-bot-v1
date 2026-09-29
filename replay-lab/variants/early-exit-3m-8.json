@@ -1,0 +1,1 @@
+{ "name": "early-exit-3m-8", "set": { "BOOK.lab.earlyExitMinutes": 3, "BOOK.lab.earlyExitLossPct": -8 } }

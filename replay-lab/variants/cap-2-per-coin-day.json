@@ -1,0 +1,1 @@
+{ "name": "cap-2-per-coin-day", "set": { "BOOK.lab.maxEntriesPerTokenPerDay": 2 } }

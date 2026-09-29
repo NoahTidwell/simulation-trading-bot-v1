@@ -81,7 +81,8 @@ export function evaluateEntryFilter(
     reasons.push("pair age unknown");
   } else {
     const ageMin = (now - snap.pairCreatedAt) / 60_000;
-    if (ageMin < PRICE_STRUCTURE.minTokenAgeMinutes) reasons.push(`age ${ageMin.toFixed(0)}m < ${PRICE_STRUCTURE.minTokenAgeMinutes}m`);
+    const minAge = profile.lab?.minTokenAgeMinutes || PRICE_STRUCTURE.minTokenAgeMinutes;
+    if (ageMin < minAge) reasons.push(`age ${ageMin.toFixed(0)}m < ${minAge}m`);
   }
 
   // --- new local high vs trailing window ---

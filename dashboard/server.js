@@ -19,11 +19,19 @@ const HTML = path.join(__dirname, "index.html");
 
 // Strategy books the bot runs side by side: v1.2 writes the main data/ tree,
 // v1.3 and v1.4 (parallel paper strategies) write data/v1.3/ and data/v1.4/. Selected with ?book=.
-const BOOKS = { "v1.2": DATA, "v1.3": path.join(DATA, "v1.3"), "v1.4": path.join(DATA, "v1.4") };
-const DEFAULT_BOOK = "v1.2";
+// The books come from data/books.json (written by the bot from config.PROFILES), so this file never
+// needs editing when a book is added or retired. Retired books are not listed but stay on disk.
+const books = require("./books.js");
+const BOOKS = new Proxy({}, {
+  get: (_, id) => (typeof id === "string" && books.activeIds().includes(id) ? books.bookDir(id) : undefined),
+  has: (_, id) => books.activeIds().includes(id),
+  ownKeys: () => books.activeIds(),
+  getOwnPropertyDescriptor: (_, id) => (books.activeIds().includes(id) ? { enumerable: true, configurable: true, value: books.bookDir(id) } : undefined),
+});
+const defaultBook = () => books.activeIds().at(-1) || "v1.4"; // the newest book
 
 function filesFor(book) {
-  const root = BOOKS[book];
+  const root = books.bookDir(book); // active or retired (the report cards read retired books too)
   return {
     summary: path.join(root, "trades", "summary.json"),
     positions: path.join(root, "positions", "open-positions.json"),
@@ -180,7 +188,14 @@ function applyFeeFree(state, FILES) {
   if (!s) return;
   const F = L.total;
   const dayStart = Date.parse(new Date().toISOString().slice(0, 10));
-  const feesToday = L.timeline.filter((x) => x.t >= dayStart).reduce((a, x) => a + x.fee, 0);
+  // Today's realized gets back the fees on today's fills, except the part of still-open
+  // positions' entry fees that sits in their remaining cost basis (that is unrealized).
+  const openEntryToday = state.positions.reduce((a, p) => {
+    const pos = L.byPos.get(p.id);
+    if (!pos || p.openedAt < dayStart) return a;
+    return a + pos.entry * (p.tokensInitial > 0 ? p.tokensRemaining / p.tokensInitial : 1);
+  }, 0);
+  const feesToday = L.timeline.filter((x) => x.t >= dayStart).reduce((a, x) => a + x.fee, 0) - openEntryToday;
   const dayBankroll = s.dailyRealizedPnlPct ? s.dailyRealizedPnlUsd / (s.dailyRealizedPnlPct / 100) : null;
   const closed = state.closedTrades;
   const wins = closed.filter((t) => t.realizedPnlUsd > 0);
@@ -222,7 +237,7 @@ function applyFeeFree(state, FILES) {
 
 /** Which books have written a summary yet (the page only offers those). */
 function availableBooks() {
-  return Object.keys(BOOKS).map((id) => ({ id, available: fs.existsSync(filesFor(id).summary) }));
+  return books.activeIds().map((id) => ({ id, available: fs.existsSync(filesFor(id).summary), description: books.describe(id) }));
 }
 
 function buildState(book, excludeFees) {
@@ -256,11 +271,9 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname === "/api/state") {
-    const book = url.searchParams.get("book") || DEFAULT_BOOK;
-    if (!Object.prototype.hasOwnProperty.call(BOOKS, book)) {
-      res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: `unknown book ${book}` }));
-      return;
-    }
+    // An unknown or retired book falls back to the default, so an old saved choice never breaks the page.
+    let book = url.searchParams.get("book") || defaultBook();
+    if (!books.activeIds().includes(book)) book = defaultBook();
     let body;
     try {
       // Fixed fees are excluded unless the page asks for them (?fees=include).
@@ -285,7 +298,12 @@ const server = http.createServer((req, res) => {
   res.writeHead(404).end("not found");
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`simulation_trading_bot_v1 dashboard (read-only) → http://localhost:${PORT}`);
-  for (const [id, dir] of Object.entries(BOOKS)) console.log(`  ${id}  ${dir}`);
-});
+// Run as a server when started directly; the report-card service imports the helpers instead.
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`simulation_trading_bot_v1 dashboard (read-only) → http://localhost:${PORT}`);
+    for (const id of books.activeIds()) console.log(`  ${id}  ${books.bookDir(id)}`);
+  });
+}
+
+module.exports = { BOOKS, filesFor, readJson, readJsonl, allTradeEvents, eventFeeUsd, feeLedger };

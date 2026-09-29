@@ -24,6 +24,8 @@ import { Portfolio } from "./simulation/portfolio";
 import { simulateEntry, simulateExit } from "./simulation/simulated-execution";
 import { applySecurityRecheck, checkVelocitySpike, isPriceStale, pushSample } from "./strategy/ejection-triggers";
 import { effectiveGainPct, evaluateExitRules, trailingStopLevel } from "./strategy/exit-rules";
+import { ConfirmGate, overEntryCap } from "./strategy/lab-rules";
+import { writeBookRegistry } from "./logging/book-registry";
 import { sizeNewPosition } from "./strategy/position-sizer";
 import type { Band, Candidate, ExitReason, MarketSnapshot, Position, PriceResult, RefreshInfo, SecurityGateResult, StrategyProfile, Summary } from "./types";
 import { errMsg, fmtUsd, shortAddr } from "./utils/format";
@@ -44,6 +46,8 @@ interface Book {
   portfolio: Portfolio;
   risk: RiskManager;
   lastCandidates: Candidate[];
+  /** Wait-and-confirm clocks for lab.confirmSeconds (see strategy/lab-rules.ts). */
+  confirm: ConfirmGate;
 }
 
 interface Context {
@@ -273,11 +277,33 @@ function sizingFor(book: Book) {
   });
 }
 
+/**
+ * Lab rules (v1.5): a per-token entry cap over 24 h, and wait-and-confirm — a
+ * token's first passing signal only starts a clock; it becomes a candidate once
+ * it still passes after confirmSeconds with its price within confirmMaxDropPct
+ * of the signal price. Same logic as scripts/replay.ts.
+ */
+function applyLabRules(book: Book, candidates: Candidate[], now: number): Candidate[] {
+  const lab = book.profile.lab;
+  if (!lab) return candidates;
+  const out: Candidate[] = [];
+  for (const c of candidates) {
+    const mint = c.token.tokenAddress;
+    if (overEntryCap(lab, book.portfolio.entriesOnToken(mint, now - 24 * 3_600_000))) continue;
+    const { result, changePct } = book.confirm.check(lab, mint, c.snapshot.priceUsd, now);
+    if (result === "fail") reporter.info(`${tag(book)}confirm FAIL ${c.snapshot.symbol}: price ${changePct?.toFixed(1)}% vs signal after ${lab.confirmSeconds}s`);
+    if (result === "pass") out.push(c);
+  }
+  book.confirm.prune(lab, now);
+  return out;
+}
+
 /** Which of a book's candidates it would gate this cycle (empty if it can't enter at all). */
 function candidatesToGate(ctx: Context, book: Book, now: number): Candidate[] {
   // Open positions + tokens on re-entry cooldown are never candidates.
-  const candidates = ctx.scanner.candidates(now, book.portfolio.blockedMints(now), book.profile);
-  book.lastCandidates = candidates;
+  const all = ctx.scanner.candidates(now, book.portfolio.blockedMints(now), book.profile);
+  book.lastCandidates = all;
+  const candidates = applyLabRules(book, all, now);
   if (candidates.length === 0 || !book.risk.canOpenNewEntries().allowed) return [];
   const sizing = sizingFor(book);
   if (!sizing.ok) {
@@ -592,9 +618,10 @@ async function main(): Promise<void> {
   const books: Book[] = PROFILES.map((profile, i) => {
     const paths = bookPaths(profile);
     const portfolio = Portfolio.load(paths.openPositionsFile, profile.startingBankrollUsd);
-    return { profile, paths, label: i === 0 ? undefined : profile.id, portfolio, risk: RiskManager.load(portfolio, paths.riskStateFile), lastCandidates: [] };
+    return { profile, paths, label: i === 0 && PROFILES.length === 1 ? undefined : profile.id, portfolio, risk: RiskManager.load(portfolio, paths.riskStateFile), lastCandidates: [], confirm: new ConfirmGate() };
   });
   ensureDataDirs(books.map((b) => b.paths));
+  writeBookRegistry(PROFILES);
   try {
     const pruned = pruneRecordings(Date.now());
     if (pruned > 0) reporter.info(`recorder: deleted ${pruned} recording(s) past retention`);
@@ -629,7 +656,7 @@ async function main(): Promise<void> {
     heliusEnabled: Boolean(KEYS.helius),
     rpc: ENDPOINTS.solanaRpc,
   });
-  for (const book of books.slice(1)) {
+  for (const book of PROFILES.length > 1 ? books : []) {
     const a = book.profile.bands.A;
     reporter.info(
       `parallel book ${book.profile.id}: bankroll ${fmtUsd(book.portfolio.bankrollUsd())}, ${book.portfolio.openPositions().length} open | ` +

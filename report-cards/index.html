@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>v1.4 Performance Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=JetBrains+Mono:wght@400;500&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #f1f3f6;
+    --paper: #ffffff;
+    --paper-rule: #e8ebf0;
+    --ink: #1b2130;
+    --muted: #5d6576;
+    --faint: #939aa8;
+    --line: #d6dbe3;
+    --margin-rule: #e6a4a4;
+    --gA: #1d8a4e; --gB: #1f6db4; --gC: #b07d06; --gD: #c85a12; --gF: #c42b2b; --gX: #7c8594;
+    --g: var(--gX);
+    --g-soft: color-mix(in srgb, var(--g) 12%, var(--paper));
+    --shadow: 0 1px 2px rgba(27, 33, 48, 0.06), 0 6px 18px rgba(27, 33, 48, 0.06);
+    --display: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #10141b; --paper: #171c25; --paper-rule: #1f2632; --ink: #e6e9ef; --muted: #9aa3b3; --faint: #6d7686; --line: #283040;
+      --margin-rule: #5b2e33; --gA: #3fc27a; --gB: #5aa2ec; --gC: #e0b03e; --gD: #f08a45; --gF: #f0595a; --gX: #7f8898; --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #10141b; --paper: #171c25; --paper-rule: #1f2632; --ink: #e6e9ef; --muted: #9aa3b3; --faint: #6d7686; --line: #283040;
+    --margin-rule: #5b2e33; --gA: #3fc27a; --gB: #5aa2ec; --gC: #e0b03e; --gD: #f08a45; --gF: #f0595a; --gX: #7f8898; --shadow: none;
+  }
+  body, [data-g] { --g-soft: color-mix(in srgb, var(--g) 12%, var(--paper)); }
+  [data-g="A"] { --g: var(--gA); } [data-g="B"] { --g: var(--gB); } [data-g="C"] { --g: var(--gC); } [data-g="D"] { --g: var(--gD); } [data-g="F"] { --g: var(--gF); }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { background: var(--bg); }
+  body {
+    margin: 0; padding: 0 16px 64px; color: var(--ink); font: 15px/1.55 var(--body);
+    background: linear-gradient(180deg, var(--g-soft) 0, var(--bg) 420px) no-repeat, var(--bg);
+    transition: background 0.4s;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; }
+  h1, h2, h3 { margin: 0; font-family: var(--display); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; text-wrap: balance; }
+  p { margin: 0; }
+  .num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .lbl { font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--g); outline-offset: 2px; }
+
+  header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 24px; padding: 30px 0 20px; }
+  header.top h1 { font-size: 30px; }
+  header.top h1 span { color: var(--g); }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 4px 11px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gX); }
+  .dot.live { background: var(--gA); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gA) 25%, transparent); }
+  .dot.down { background: var(--gF); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+  @media (max-width: 920px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  .card { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 24px; }
+  @media (max-width: 560px) { .card { padding: 18px 16px; } }
+  .card-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; }
+  .card-head h2 { font-size: 24px; }
+  .period { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .verdict { margin-top: 12px; font-size: 16px; max-width: 58ch; }
+  .prov { display: inline-block; margin-left: 8px; font-family: var(--body); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--g); border: 1px dashed var(--g); border-radius: 3px; padding: 1px 6px; vertical-align: middle; }
+
+  .badge { min-width: 124px; border-radius: 10px; background: var(--g); color: var(--paper); display: grid; justify-items: center; padding: 12px 16px 10px; gap: 2px; }
+  .badge b { font-family: var(--display); font-weight: 800; font-size: 56px; line-height: 1; letter-spacing: -0.02em; }
+  .badge small { font-family: var(--mono); font-size: 12.5px; opacity: 0.9; }
+  .badge span { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
+  @media (max-width: 560px) { .badge { min-width: 92px; padding: 10px 12px 8px; } .badge b { font-size: 42px; } }
+
+  .section { margin-top: 24px; display: grid; gap: 10px; }
+  .section > h3 { font-family: var(--body); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--paper-rule); vertical-align: middle; }
+  th { font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 700; border-bottom: 1px solid var(--line); }
+  td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tscroll { overflow-x: auto; }
+  .bar { height: 9px; background: var(--paper-rule); border-radius: 2px; overflow: hidden; min-width: 80px; }
+  .bar i { display: block; height: 100%; background: var(--g); border-radius: 2px; }
+  .letter { font-family: var(--display); font-weight: 700; font-size: 17px; text-align: center; width: 44px; }
+  .letter[data-g="A"] { color: var(--gA); } .letter[data-g="B"] { color: var(--gB); } .letter[data-g="C"] { color: var(--gC); } .letter[data-g="D"] { color: var(--gD); } .letter[data-g="F"] { color: var(--gF); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .stats div { padding: 10px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: grid; gap: 2px; background: var(--paper); }
+  .stats div:nth-child(4n) { border-right: 0; }
+  .stats div:nth-last-child(-n+4) { border-bottom: 0; }
+  .stats .v { font-family: var(--mono); font-size: 18px; font-weight: 500; }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stats div:nth-child(4n) { border-right: 1px solid var(--line); } .stats div:nth-child(2n) { border-right: 0; } .stats div:nth-last-child(-n+4) { border-bottom: 1px solid var(--line); } .stats div:nth-last-child(-n+2) { border-bottom: 0; } }
+  .pos { color: var(--gA); } .neg { color: var(--gF); }
+
+  canvas { display: block; width: 100%; }
+  ul.notes { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 72ch; }
+  .review { border: 1px solid color-mix(in srgb, var(--g) 35%, var(--line)); background: var(--g-soft); padding: 14px 16px; border-radius: 8px; display: grid; gap: 8px; max-width: 76ch; }
+  .review p { white-space: pre-wrap; }
+  .review .sig { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .empty { color: var(--muted); font-style: italic; }
+
+  /* side column */
+  .side { display: grid; gap: 18px; }
+  .mini { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; box-shadow: var(--shadow); display: grid; gap: 12px; }
+  .mini h3 { font-size: 16px; }
+  .mini-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .mini .g { font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1; background: var(--g); color: var(--paper); border-radius: 8px; padding: 8px 12px; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 14px; }
+  .kv .num { text-align: right; }
+
+  /* transcript */
+  .transcript { margin-top: 22px; }
+  .days { display: grid; gap: 10px; }
+  .day { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: center; }
+  .day .d { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .slots { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+  .slot { border: 1px solid var(--line); background: var(--paper); border-radius: 5px; padding: 5px 4px; cursor: pointer; display: grid; justify-items: center; gap: 0; min-height: 56px; }
+  .slot b { font-family: var(--display); font-weight: 700; font-size: 18px; line-height: 1.2; }
+  .slot span { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .slot[data-g] { border-color: color-mix(in srgb, var(--g) 45%, var(--line)); background: color-mix(in srgb, var(--g) 9%, var(--paper)); }
+  .slot[data-g] b { color: var(--g); }
+  .slot[aria-pressed="true"] { outline: 2px solid var(--g); outline-offset: 1px; }
+  .slot.blank { cursor: default; opacity: 0.35; border-style: dashed; }
+  .slot.live { border-style: dashed; }
+  @media (max-width: 640px) { .day { grid-template-columns: minmax(0, 1fr); } .slots { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); padding: 2px; }
+  .seg button { border: 0; background: none; border-radius: 999px; padding: 3px 12px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .dayrow { display: grid; grid-template-columns: 170px 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; text-align: left; width: 100%; border: 1px solid color-mix(in srgb, var(--g) 45%, var(--line)); background: color-mix(in srgb, var(--g) 8%, var(--paper)); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  .dayrow > b { font-family: var(--display); font-size: 22px; color: var(--g); }
+  .dayrow .d { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .dayrow.live { border-style: dashed; }
+  .dayrow[aria-pressed="true"] { outline: 2px solid var(--g); outline-offset: 1px; }
+  .rg[data-g] { color: var(--g); }
+  @media (max-width: 640px) { .dayrow { grid-template-columns: minmax(0, 1fr) auto; } .dayrow .mono { grid-column: 1 / -1; } }
+  body[data-view="lab"] .layout { grid-template-columns: minmax(0, 1fr); }
+  body[data-view="lab"] .side, body[data-view="lab"] #transcriptCard { display: none; }
+  .labt td { vertical-align: middle; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); }
+  .err { border: 1px solid var(--gF); color: var(--gF); background: var(--paper); border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body data-g="X">
+<div class="wrap">
+  <header class="top">
+    <div style="display:grid;gap:6px">
+      <h1><span id="bookName" style="color:var(--ink)">v1.4</span> <span>Performance Review</span></h1>
+      <p class="muted">A graded snapshot every 3 hours, and a daily grade that averages the day's eight. Fees excluded.</p>
+    </div>
+    <div class="status">
+      <span class="seg" id="bookSeg" role="group" aria-label="Strategy book"></span>
+      <span class="seg" id="viewSeg" role="group" aria-label="Review length"><button data-v="period" aria-pressed="true">3-hour</button><button data-v="day" aria-pressed="false">Daily</button><button data-v="lab" aria-pressed="false">Replay Lab</button></span>
+      <span class="pill"><span class="dot" id="liveDot"></span><span id="liveTxt">Connecting…</span></span>
+      <span class="pill" id="nextTxt">Next card —</span>
+    </div>
+  </header>
+
+  <p class="err" id="err" hidden></p>
+
+  <div class="layout">
+    <main class="card" id="card" aria-live="polite">
+      <p class="empty">Loading reviews…</p>
+    </main>
+    <aside class="side">
+      <section class="mini" id="nowCard"></section>
+      <section class="mini">
+        <h3>Grading scale</h3>
+        <table>
+          <tbody>
+            <tr><td>Returns</td><td class="n">40</td><td class="small muted">−4% → 0 · +4% → full</td></tr>
+            <tr><td>Trade quality</td><td class="n">25</td><td class="small muted">profit factor, 2.0 → full</td></tr>
+            <tr><td>Risk control</td><td class="n">20</td><td class="small muted">−8% drawdown → 0, −2 per hard stop</td></tr>
+            <tr><td>Activity</td><td class="n">15</td><td class="small muted">4 entries per period → full</td></tr>
+          </tbody>
+        </table>
+        <p class="small muted">A 88+ · B 75+ · C 62+ · D 50+ · F below 50. Offline for more than half the period caps the grade at D.</p>
+        <p class="small muted"><b>Daily grade:</b> the average of the day's eight 3-hour scores. <b>Result:</b> the day's equity change, −8% → 0, flat → 50, +8% → 100.</p>
+      </section>
+    </aside>
+  </div>
+
+  <section class="card transcript" id="transcriptCard">
+    <div class="card-head" style="grid-template-columns:1fr auto;align-items:center">
+      <h2>History</h2>
+      <label class="small muted" id="histDayWrap" style="display:flex;gap:8px;align-items:center">Day <select id="histDay" style="font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:4px 8px"></select></label>
+    </div>
+    <div class="section" style="margin-top:14px">
+      <canvas id="trend" height="190" aria-label="Score for every period, coloured by grade"></canvas>
+      <div class="days" id="days"></div>
+      <p class="small muted" id="histHint">Click any period to open its card. The dashed slot is the period in progress.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const css = (n) => getComputedStyle(document.body).getPropertyValue(n).trim();
+const G = (grade) => (grade ? grade[0] : "X");
+const usd = (x, d = 2) => (x == null ? "—" : `${x < 0 ? "−" : x > 0 ? "+" : ""}$${Math.abs(x).toFixed(d)}`);
+const pct = (x, d = 2) => (x == null ? "—" : `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(x).toFixed(d)}%`);
+const hm = (ms) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const hShort = (ms) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric" }).replace(":00", "").replace(" ", "").toLowerCase();
+const dayLabel = (ms) => new Date(ms).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+const REASONS = { noFollowThrough: "No follow-through", maxHoldTime: "Max hold time", trailingStop: "Trailing stop", hardStop: "Hard stop", velocityEjection: "Velocity ejection", takeProfitTier1: "Take-profit 1", takeProfitTier2: "Take-profit 2" };
+
+let state = null, selected = null, followLatest = true;
+
+function verdict(c) {
+  const s = c.stats, g = G(c.grade);
+  const head = { A: "Excellent period.", B: "Solid period.", C: "Mixed period.", D: "Weak period.", F: "Failing period." }[g] || "";
+  const ret = s.returnPct >= 0 ? `equity up ${s.returnPct.toFixed(2)}%` : `equity down ${Math.abs(s.returnPct).toFixed(2)}%`;
+  const act = s.entries ? `${s.entries} entr${s.entries === 1 ? "y" : "ies"}, ${s.closedTrades} closed` : "no entries";
+  return `${head} ${ret[0].toUpperCase() + ret.slice(1)}, ${act}.`;
+}
+
+function renderCard(c) {
+  document.body.dataset.g = G(c.grade);
+  const s = c.stats;
+  const subjects = c.subjects.map((x) => `
+    <tr><td>${x.label}</td><td style="width:45%"><div class="bar"><i style="width:${(x.score / x.max) * 100}%"></i></div></td>
+    <td class="n">${x.score.toFixed(1)} / ${x.max}</td><td class="letter" data-g="${G(x.grade)}">${x.grade}</td></tr>`).join("");
+  const pf = s.profitFactorInfinite ? "∞" : s.profitFactor == null ? "—" : s.profitFactor.toFixed(2);
+  const stat = (l, v, cls = "") => `<div><span class="lbl">${l}</span><span class="v ${cls}">${v}</span></div>`;
+  const reasons = Object.entries(s.exitReasons || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${REASONS[k] || k} ${v}`).join(" · ");
+  const trades = c.trades.length ? `<div class="tscroll"><table>
+      <thead><tr><th>Token</th><th>Closed</th><th>Exit</th><th class="n">Held</th><th class="n">P&amp;L</th><th class="n">Return</th></tr></thead>
+      <tbody>${c.trades.map((t) => `<tr><td><b>${esc(t.symbol)}</b></td><td class="mono small">${hm(t.closedAt)}</td><td>${esc(REASONS[t.reason] || t.reason)}</td><td class="n">${t.holdMin != null ? Math.round(t.holdMin) + "m" : "—"}</td><td class="n ${t.pnl >= 0 ? "pos" : "neg"}">${usd(t.pnl)}</td><td class="n ${t.pnl >= 0 ? "pos" : "neg"}">${pct(t.pct, 1)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="empty">No positions closed in this period.</p>`;
+  $("card").innerHTML = `
+    <div class="card-head">
+      <div>
+        <span class="lbl">${c.provisional ? "Period in progress" : "3-hour snapshot"}</span>
+        <h2>${dayLabel(c.start)} · ${hm(c.start)} – ${hm(c.end)}${c.provisional ? `<span class="prov">So far</span>` : c.pending ? `<span class="prov">Final at ${hm(c.finalAt)}</span>` : ""}</h2>
+        <p class="period">Book v1.4 · graded ${new Date(c.gradedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
+        <p class="verdict">${esc(verdict(c))}</p>
+      </div>
+      <div class="badge" aria-label="Grade ${c.grade}, score ${c.score}"><span>Grade</span><b>${c.grade}</b><small>${c.score.toFixed(0)} / 100</small></div>
+    </div>
+    <div class="section"><h3>Score breakdown</h3><div class="tscroll"><table>
+      <thead><tr><th>Category</th><th>Score</th><th class="n">Points</th><th style="text-align:center">Grade</th></tr></thead>
+      <tbody>${subjects}</tbody></table></div></div>
+    <div class="section"><h3>Key numbers</h3>
+      <div class="stats">
+        ${stat("Equity change", pct(s.returnPct), s.returnPct >= 0 ? "pos" : "neg")}
+        ${stat("Equity", s.endEquity != null ? "$" + s.endEquity.toFixed(2) : "—")}
+        ${stat("Realized", usd(s.realizedUsd), s.realizedUsd >= 0 ? "pos" : "neg")}
+        ${stat("Max drawdown", pct(s.maxDrawdownPct), s.maxDrawdownPct < -3 ? "neg" : "")}
+        ${stat("Entries", s.entries)}
+        ${stat("Closed · won", `${s.closedTrades} · ${s.wins}`)}
+        ${stat("Profit factor", pf)}
+        ${stat("Hard stops", s.hardStops, s.hardStops ? "neg" : "")}
+      </div>
+      <p class="small muted">${reasons ? `Exits: ${esc(reasons)}.` : "No exits."} Open at the end: ${s.openAtEnd}. Uptime ${Math.round(s.uptimePct)}%.</p>
+    </div>
+    <div class="section"><h3>Equity through the period</h3><canvas id="path" height="130" aria-label="Equity during the period"></canvas></div>
+    <div class="section"><h3>Trades closed</h3>${trades}</div>
+    <div class="section"><h3>Key observations</h3><ul class="notes">${c.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>
+    <div class="section"><h3>Analyst review</h3>${c.review
+      ? `<div class="review"><p>${esc(c.review.text)}</p><span class="sig">— ${esc(c.review.by)}, ${new Date(c.review.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></div>`
+      : `<p class="empty">${c.provisional ? "Written after the period ends." : "Review pending."}</p>`}</div>`;
+  drawPath(c);
+}
+
+function setupCanvas(cv) {
+  if (!cv.dataset.h) cv.dataset.h = cv.getAttribute("height");
+  const w = cv.clientWidth, h = Number(cv.dataset.h), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.height = `${h}px`;
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+function drawPath(c) {
+  const cv = $("path"); if (!cv) return;
+  const { ctx, w, h } = setupCanvas(cv);
+  const pts = c.equityPath;
+  if (pts.length < 2) { ctx.fillStyle = css("--muted"); ctx.font = `13px ${css("--body")}`; ctx.fillText("Not enough equity samples yet.", 8, 24); return; }
+  const base = c.stats.startEquity ?? pts[0][1];
+  const vals = pts.map((p) => p[1]);
+  let lo = Math.min(base, ...vals), hi = Math.max(base, ...vals);
+  const pad0 = (hi - lo) * 0.12 || 1; lo -= pad0; hi += pad0;
+  const P = { l: 58, r: 10, t: 8, b: 22 };
+  const X = (t) => P.l + ((t - c.start) / (c.end - c.start)) * (w - P.l - P.r);
+  const Y = (v) => P.t + (1 - (v - lo) / (hi - lo)) * (h - P.t - P.b);
+  ctx.font = `11px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--paper-rule"); ctx.lineWidth = 1;
+  ctx.textAlign = "right";
+  for (const v of [lo + pad0, (lo + hi) / 2, hi - pad0]) { ctx.beginPath(); ctx.moveTo(P.l, Y(v)); ctx.lineTo(w - P.r, Y(v)); ctx.stroke(); ctx.fillText("$" + v.toFixed(0), P.l - 6, Y(v) + 4); }
+  ctx.textAlign = "center";
+  const stepMs = c.end - c.start > 4 * 3600e3 ? 6 * 3600e3 : 3600e3;
+  for (let t = c.start; t <= c.end; t += stepMs) ctx.fillText(hm(t), X(t), h - 6);
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = css("--faint"); ctx.beginPath(); ctx.moveTo(P.l, Y(base)); ctx.lineTo(w - P.r, Y(base)); ctx.stroke(); ctx.setLineDash([]);
+  const g = css("--g");
+  ctx.beginPath(); pts.forEach(([t, v], i) => (i ? ctx.lineTo(X(t), Y(v)) : ctx.moveTo(X(t), Y(v))));
+  ctx.lineTo(X(pts.at(-1)[0]), Y(lo)); ctx.lineTo(X(pts[0][0]), Y(lo)); ctx.closePath();
+  ctx.globalAlpha = 0.12; ctx.fillStyle = g; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = g; ctx.lineWidth = 2; ctx.beginPath(); pts.forEach(([t, v], i) => (i ? ctx.lineTo(X(t), Y(v)) : ctx.moveTo(X(t), Y(v)))); ctx.stroke();
+  const [lt, lv] = pts.at(-1); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(X(lt), Y(lv), 3.5, 0, 2 * Math.PI); ctx.fill();
+}
+
+function renderNow(c, status) {
+  const s = c.stats;
+  $("nowCard").dataset.g = G(c.grade);
+  $("nowCard").innerHTML = `
+    <div class="mini-head"><div><h3>Period in progress</h3><p class="small muted">${hm(c.start)} – ${hm(c.end)} · provisional</p></div><span class="g">${c.grade}</span></div>
+    <div class="kv">
+      <span>Score so far</span><span class="num">${c.score.toFixed(0)}/100</span>
+      <span>Equity change</span><span class="num ${s.returnPct >= 0 ? "pos" : "neg"}">${pct(s.returnPct)}</span>
+      <span>Entries · closed</span><span class="num">${s.entries} · ${s.closedTrades}</span>
+      <span>Open positions</span><span class="num">${status.openPositions ?? s.openAtEnd}</span>
+      <span>Equity now</span><span class="num">${status.equityUsd != null ? "$" + status.equityUsd.toFixed(2) : "—"}</span>
+    </div>
+    <button class="pill" id="openNow" style="justify-self:start;cursor:pointer">Open this card</button>`;
+  $("openNow").onclick = () => select("now");
+}
+
+let histDay = null, histPinned = false; // day shown in the 3-hour history (local midnight, ms); pinned once picked by hand
+const midnightOf = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+
+function renderTranscript() {
+  $("histDayWrap").hidden = false;
+  const cards = [...state.cards, { ...state.current, live: true }];
+  const dayKeys = [...new Set(cards.map((c) => midnightOf(c.start)))].sort((a, b) => b - a);
+  const selCard = selected === "now" ? state.current : state.cards.find((x) => x.id === selected);
+  if (histDay == null || !dayKeys.includes(histDay)) histDay = selCard ? midnightOf(selCard.start) : dayKeys[0];
+  const today = midnightOf(Date.now());
+  $("histDay").innerHTML = dayKeys.map((k) => `<option value="${k}"${k === histDay ? " selected" : ""}>${dayLabel(k)}${k === today ? " · today" : ""}</option>`).join("");
+  const cs = cards.filter((c) => midnightOf(c.start) === histDay);
+  const slots = Array.from({ length: 8 }, (_, i) => {
+    const c = cs.find((x) => new Date(x.start).getHours() === i * 3);
+    const t = histDay + i * 3 * 3600e3;
+    if (!c) return `<div class="slot blank"><b>·</b><span>${hShort(t)}</span></div>`;
+    const id = c.live ? "now" : c.id;
+    return `<button class="slot${c.live ? " live" : ""}" data-g="${G(c.grade)}" data-id="${id}" aria-pressed="${selected === id}" title="${esc(c.grade)} · ${c.score} · ${pct(c.stats.returnPct)}"><b>${c.grade}</b><span>${hShort(t)}${c.live ? " now" : ""}</span></button>`;
+  }).join("");
+  $("days").innerHTML = `<div class="slots">${slots}</div>`;
+  drawTrend(cs, histDay);
+}
+$("histDay").addEventListener("change", (e) => {
+  if (view === "day") { selDay = e.target.value; renderDayView(); return; }
+  histDay = Number(e.target.value); histPinned = true; renderTranscript();
+});
+$("days").addEventListener("click", (e) => { const b = e.target.closest("button.slot"); if (b) select(b.dataset.id, true); });
+
+function drawTrend(cards, dayStart) {
+  const { ctx, w, h } = setupCanvas($("trend"));
+  const P = { l: 30, r: 8, t: 8, b: 20 }, n = 8;
+  const bw = (w - P.l - P.r) / n;
+  const Y = (v) => P.t + (1 - v / 100) * (h - P.t - P.b);
+  ctx.font = `11px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--paper-rule"); ctx.lineWidth = 1; ctx.textAlign = "right";
+  for (const [v, l] of [[88, "A"], [75, "B"], [62, "C"], [50, "D"]]) { ctx.beginPath(); ctx.moveTo(P.l, Y(v)); ctx.lineTo(w - P.r, Y(v)); ctx.stroke(); ctx.fillText(l, P.l - 8, Y(v) + 4); }
+  for (let i = 0; i < n; i++) {
+    const x = P.l + i * bw + bw * 0.2, bwid = bw * 0.6;
+    ctx.fillStyle = css("--muted"); ctx.textAlign = "center";
+    ctx.fillText(hShort(dayStart + i * 3 * 3600e3), x + bwid / 2, h - 5);
+    const c = cards.find((x) => new Date(x.start).getHours() === i * 3);
+    if (!c) continue;
+    ctx.fillStyle = css(`--g${G(c.grade)}`); ctx.globalAlpha = c.live ? 0.4 : 0.85;
+    ctx.fillRect(x, Y(c.score), bwid, Y(0) - Y(c.score));
+    ctx.globalAlpha = 1;
+    const id = c.live ? "now" : c.id;
+    if (selected === id) { ctx.strokeStyle = css("--ink"); ctx.lineWidth = 2; ctx.strokeRect(x - 1, Y(c.score) - 1, bwid + 2, Y(0) - Y(c.score) + 2); }
+    ctx.fillStyle = css("--ink"); ctx.fillText(String(Math.round(c.score)), x + bwid / 2, Y(c.score) - 5);
+  }
+}
+
+function select(id, manual) {
+  selected = id;
+  const sc = id === "now" ? state?.current : state?.cards.find((x) => x.id === id);
+  if (sc && (manual ? (histPinned = false, true) : !histPinned)) histDay = midnightOf(sc.start);
+  if (view === "day") { renderDayView(); return; }
+  if (view === "lab") { renderLab(); return; }
+  if (manual) followLatest = id === (state.cards.at(-1)?.id);
+  const c = id === "now" ? state.current : state.cards.find((x) => x.id === id);
+  if (c) renderCard(c);
+  renderTranscript();
+  try { history.replaceState(null, "", `#${id}`); } catch {}
+}
+
+// ---------------------------------------------------------------------------- daily view
+let view = (() => { try { const v = localStorage.getItem("rc-view"); return v === "day" || v === "lab" ? v : "period"; } catch { return "period"; } })();
+let selDay = null;
+
+function setView(v) {
+  view = v;
+  document.body.dataset.view = v;
+  try { localStorage.setItem("rc-view", v); } catch {}
+  for (const b of document.querySelectorAll("#viewSeg button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
+  $("histHint").textContent = v === "day"
+    ? "Click a day to open its review. The dashed row is today so far."
+    : "Click any period to open its card. The dashed slot is the period in progress.";
+  if (!state) return;
+  if (v === "day") renderDayView(); else if (v === "lab") renderLab(); else { renderNow(state.current, state.status); select(selected); }
+}
+document.querySelectorAll("#viewSeg button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.v)));
+
+function dayList() {
+  return [...(state.days || []), ...(state.today ? [{ ...state.today, live: true }] : [])];
+}
+
+function renderDayView() {
+  const days = dayList();
+  if (!days.length) { $("card").innerHTML = `<p class="empty">No full day graded yet.</p>`; return; }
+  if (!selDay || !days.some((d) => (d.live ? "today" : d.id) === selDay)) selDay = state.days?.length ? state.days.at(-1).id : "today";
+  const d = selDay === "today" ? state.today : state.days.find((x) => x.id === selDay);
+  renderDay(d);
+  renderToday(state.today, state.status);
+  renderDayHistory(days);
+  try { history.replaceState(null, "", `#day-${selDay}`); } catch {}
+}
+
+function renderDay(d) {
+  document.body.dataset.g = G(d.grade);
+  const s = d.stats;
+  const pf = s.profitFactorInfinite ? "∞" : s.profitFactor == null ? "—" : s.profitFactor.toFixed(2);
+  const stat = (l, v, cls = "") => `<div><span class="lbl">${l}</span><span class="v ${cls}">${v}</span></div>`;
+  const midnight = d.start;
+  const slots = Array.from({ length: 8 }, (_, i) => {
+    const t = midnight + i * 3 * 3600e3;
+    const p = d.periods.find((x) => new Date(x.start).getHours() === i * 3);
+    if (!p) return `<div class="slot blank"><b>·</b><span>${hShort(t)}</span></div>`;
+    return `<button class="slot" data-g="${G(p.grade)}" data-period="${p.id}" title="${esc(p.grade)} · ${p.score} · ${pct(p.returnPct)}"><b>${p.grade}</b><span>${hShort(t)} · ${pct(p.returnPct, 1)}</span></button>`;
+  }).join("");
+  const sorted = [...d.trades].sort((a, b) => b.pnl - a.pnl);
+  const row = (t) => `<tr><td><b>${esc(t.symbol)}</b></td><td>${esc(REASONS[t.reason] || t.reason)}</td><td class="n">${t.holdMin != null ? Math.round(t.holdMin) + "m" : "—"}</td><td class="n ${t.pnl >= 0 ? "pos" : "neg"}">${usd(t.pnl)}</td><td class="n ${t.pnl >= 0 ? "pos" : "neg"}">${pct(t.pct, 1)}</td></tr>`;
+  const extremes = d.trades.length
+    ? `<div class="tscroll"><table><thead><tr><th>Token</th><th>Exit</th><th class="n">Held</th><th class="n">P&amp;L</th><th class="n">Return</th></tr></thead>
+       <tbody>${sorted.slice(0, 3).map(row).join("")}${sorted.length > 3 ? `<tr><td colspan="5" class="small muted">… ${Math.max(0, sorted.length - 6)} more …</td></tr>` : ""}${sorted.length > 3 ? sorted.slice(-3).map(row).join("") : ""}</tbody></table></div>`
+    : `<p class="empty">No trades closed.</p>`;
+  const disagree = G(d.grade) !== G(d.resultGrade);
+  $("card").innerHTML = `
+    <div class="card-head">
+      <div>
+        <span class="lbl">${d.provisional ? `Day so far · ${d.periods.length} of 8 periods` : "Daily review"}</span>
+        <h2>${new Date(d.start).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}${d.provisional ? `<span class="prov">So far</span>` : ""}</h2>
+        <p class="period">Book v1.4 · average of the day's 3-hour grades</p>
+        <p class="verdict">Equity ${s.returnPct >= 0 ? "up" : "down"} ${Math.abs(s.returnPct).toFixed(2)}% to $${s.endEquity.toFixed(2)}, ${s.closedTrades} trades closed.${disagree ? ` The average grade (${d.grade}) and the money result (${d.resultGrade}) disagree.` : ""}</p>
+      </div>
+      <div style="display:grid;gap:8px;justify-items:end">
+        <div class="badge" aria-label="Daily grade ${d.grade}"><span>Daily grade</span><b>${d.grade}</b><small>avg ${d.score.toFixed(0)} / 100</small></div>
+        <div class="pill" data-g="${G(d.resultGrade)}" style="border-color:var(--g)"><span class="small muted">Result</span> <b style="color:var(--g)">${d.resultGrade}</b> <span class="num small">${pct(s.returnPct, 1)}</span></div>
+      </div>
+    </div>
+    <div class="section"><h3>The day's 3-hour grades</h3><div class="slots">${slots}</div></div>
+    <div class="section"><h3>Key numbers</h3>
+      <div class="stats">
+        ${stat("Day return", pct(s.returnPct), s.returnPct >= 0 ? "pos" : "neg")}
+        ${stat("Equity", "$" + s.endEquity.toFixed(2))}
+        ${stat("Realized", usd(s.realizedUsd), s.realizedUsd >= 0 ? "pos" : "neg")}
+        ${stat("Max drawdown", pct(s.maxDrawdownPct), s.maxDrawdownPct < -5 ? "neg" : "")}
+        ${stat("Entries", s.entries)}
+        ${stat("Closed · won", `${s.closedTrades} · ${s.wins}`)}
+        ${stat("Profit factor", pf)}
+        ${stat("Hard stops", `${s.hardStops} · ${usd(s.hardStopUsd, 0)}`, s.hardStops ? "neg" : "")}
+      </div>
+      <p class="small muted">Range $${s.lowEquity.toFixed(2)} – $${s.highEquity.toFixed(2)}. Exits: ${Object.entries(s.exitReasons).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${REASONS[k] || k} ${v}`).join(" · ") || "none"}.</p>
+    </div>
+    <div class="section"><h3>Equity through the day</h3><canvas id="path" height="150" aria-label="Equity during the day"></canvas></div>
+    <div class="section"><h3>Best and worst trades</h3>${extremes}</div>
+    <div class="section"><h3>Key observations</h3><ul class="notes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>
+    <div class="section"><h3>Analyst review</h3>${d.review
+      ? `<div class="review"><p>${esc(d.review.text)}</p><span class="sig">— ${esc(d.review.by)}, ${new Date(d.review.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></div>`
+      : `<p class="empty">${d.provisional ? "Written after the day ends." : "Review pending."}</p>`}</div>`;
+  drawPath(d);
+  $("card").querySelectorAll("button.slot[data-period]").forEach((b) => b.addEventListener("click", () => { selected = b.dataset.period; followLatest = false; setView("period"); }));
+}
+
+function renderToday(t, status) {
+  if (!t) { $("nowCard").innerHTML = `<h3>Today so far</h3><p class="small muted">No finished periods yet today.</p>`; return; }
+  $("nowCard").dataset.g = G(t.grade);
+  $("nowCard").innerHTML = `
+    <div class="mini-head"><div><h3>Today so far</h3><p class="small muted">${t.periods.length} of 8 periods · provisional</p></div><span class="g">${t.grade}</span></div>
+    <div class="kv">
+      <span>Average score</span><span class="num">${t.score.toFixed(0)}/100</span>
+      <span>Result grade</span><span class="num">${t.resultGrade}</span>
+      <span>Day return</span><span class="num ${t.stats.returnPct >= 0 ? "pos" : "neg"}">${pct(t.stats.returnPct)}</span>
+      <span>Trades closed</span><span class="num">${t.stats.closedTrades}</span>
+      <span>Equity now</span><span class="num">${status.equityUsd != null ? "$" + status.equityUsd.toFixed(2) : "—"}</span>
+    </div>
+    <button class="pill" id="openToday" style="justify-self:start;cursor:pointer">Open today</button>`;
+  $("openToday").onclick = () => { selDay = "today"; renderDayView(); };
+}
+
+function renderDayHistory(days) {
+  // In the daily view the picker chooses which day's review is open.
+  $("histDay").innerHTML = [...days].reverse().map((d) => {
+    const id = d.live ? "today" : d.id;
+    return `<option value="${id}"${selDay === id ? " selected" : ""}>${dayLabel(d.start)}${d.live ? " · so far" : ""}</option>`;
+  }).join("");
+  $("days").innerHTML = [...days].reverse().map((d) => {
+    const id = d.live ? "today" : d.id;
+    return `<button class="dayrow${d.live ? " live" : ""}" data-g="${G(d.grade)}" data-day="${id}" aria-pressed="${selDay === id}">
+      <span class="d">${dayLabel(d.start)}${d.live ? " · so far" : ""}</span>
+      <b>${d.grade}</b>
+      <span class="small">avg ${d.score.toFixed(0)} · result <b class="rg" data-g="${G(d.resultGrade)}">${d.resultGrade}</b> ${pct(d.stats.returnPct, 1)}</span>
+      <span class="mono small muted">${d.periods.map((p) => p.grade.padEnd(2, " ")).join(" ")}</span>
+    </button>`;
+  }).join("");
+  const { ctx, w, h } = setupCanvas($("trend"));
+  const P = { l: 30, r: 8, t: 8, b: 20 }, n = Math.max(days.length, 7);
+  const bw = (w - P.l - P.r) / n;
+  const Y = (v) => P.t + (1 - v / 100) * (h - P.t - P.b);
+  ctx.font = `11px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--paper-rule"); ctx.lineWidth = 1; ctx.textAlign = "right";
+  for (const [v, l] of [[88, "A"], [75, "B"], [62, "C"], [50, "D"]]) { ctx.beginPath(); ctx.moveTo(P.l, Y(v)); ctx.lineTo(w - P.r, Y(v)); ctx.stroke(); ctx.fillText(l, P.l - 8, Y(v) + 4); }
+  days.forEach((d, i) => {
+    const x = P.l + i * bw + bw * 0.2, bwid = bw * 0.6;
+    ctx.fillStyle = css(`--g${G(d.grade)}`); ctx.globalAlpha = d.live ? 0.4 : 0.85;
+    ctx.fillRect(x, Y(d.score), bwid, Y(0) - Y(d.score)); ctx.globalAlpha = 1;
+    if (selDay === (d.live ? "today" : d.id)) { ctx.strokeStyle = css("--ink"); ctx.lineWidth = 2; ctx.strokeRect(x - 1, Y(d.score) - 1, bwid + 2, Y(0) - Y(d.score) + 2); }
+    ctx.fillStyle = css("--muted"); ctx.textAlign = "center"; ctx.fillText(dayLabel(d.start), x + bwid / 2, h - 5);
+  });
+}
+$("days").addEventListener("click", (e) => { const b = e.target.closest("button.dayrow"); if (b) { selDay = b.dataset.day; renderDayView(); } });
+
+// ---------------------------------------------------------------------------- replay lab view
+let labSel = null; // names of variants drawn on the chart
+
+function describeSet(set) {
+  const s = set || {}, out = [];
+  if (s["BOOK.lab.confirmSeconds"]) out.push(`wait ${s["BOOK.lab.confirmSeconds"] >= 60 ? s["BOOK.lab.confirmSeconds"] / 60 + " min" : s["BOOK.lab.confirmSeconds"] + " s"} for the price to hold (≤ ${s["BOOK.lab.confirmMaxDropPct"] ?? 3}% dip)`);
+  if (s["BOOK.lab.earlyExitMinutes"]) out.push(`sell if ≤ ${s["BOOK.lab.earlyExitLossPct"] ?? -10}% after ${s["BOOK.lab.earlyExitMinutes"]} min`);
+  if (s["BOOK.lab.maxEntriesPerTokenPerDay"]) out.push(`max ${s["BOOK.lab.maxEntriesPerTokenPerDay"]} trades per coin per 24 h`);
+  if (s["BOOK.exit.trailingActivationGainPct"] != null) out.push(`trailing stop from +${s["BOOK.exit.trailingActivationGainPct"]}%`);
+  for (const [k, v] of Object.entries(s)) if (!/confirmSeconds|confirmMaxDropPct|earlyExit|maxEntriesPerToken|trailingActivationGainPct/.test(k)) out.push(`${k} = ${v}`);
+  return out.length ? out.join(" · ") : "v1.4 exactly as it runs today";
+}
+
+/** Grade a replay variant with the same rubric as the live cards, from its realized P&L (the replay has no minute-by-minute equity). */
+function labGrades(v, from, to) {
+  const P3 = 3 * 3600e3;
+  const trades = v.closed.slice().sort((a, b) => a.closedAt - b.closedAt);
+  const startOf = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(d.getHours() / 3) * 3).getTime(); };
+  const periods = [];
+  let cum = 0, idx = 0;
+  for (let p = startOf(from); p < to; p += P3) {
+    const end = p + P3, span = Math.min(end, to) - Math.max(p, from);
+    while (idx < trades.length && trades[idx].closedAt < p) cum += trades[idx++].pnl;
+    const eqStart = 500 + cum;
+    const inP = trades.filter((t) => t.closedAt >= p && t.closedAt < end);
+    let run = eqStart, peak = eqStart, dd = 0;
+    for (const t of inP) { run += t.pnl; peak = Math.max(peak, run); dd = Math.min(dd, ((run - peak) / peak) * 100); }
+    const pnl = inP.reduce((a, t) => a + t.pnl, 0), ret = (pnl / eqStart) * 100;
+    const gw = inP.filter((t) => t.pnl > 0).reduce((a, t) => a + t.pnl, 0), gl = -inP.filter((t) => t.pnl <= 0).reduce((a, t) => a + t.pnl, 0);
+    const pf = inP.length ? (gl > 0 ? gw / gl : gw > 0 ? Infinity : 0) : null;
+    const hs = inP.filter((t) => t.reason === "hardStop").length;
+    const entries = v.closed.filter((t) => t.openedAt >= p && t.openedAt < end).length;
+    const sR = 40 * Math.min(1, Math.max(0, (ret + 4) / 8));
+    const pfS = pf == null ? 12.5 : pf >= 2 ? 25 : pf >= 1 ? 10 + 15 * (pf - 1) : pf >= 0.5 ? 20 * (pf - 0.5) : 0;
+    const sQ = 12.5 + Math.min(1, inP.length / 3) * (pfS - 12.5);
+    const sK = Math.max(0, Math.min(20, 20 * Math.min(1, Math.max(0, 1 + dd / 8)) - 2 * hs));
+    const target = 4 * (span / P3);
+    const sA = target > 0 ? 15 * Math.min(1, entries / target) : 0;
+    const score = sR + sQ + sK + sA;
+    periods.push({ start: p, score, grade: letterOf(score), ret });
+  }
+  const avg = periods.reduce((a, x) => a + x.score, 0) / Math.max(1, periods.length);
+  return { periods, score: avg, grade: letterOf(avg) };
+}
+function letterOf(score) {
+  const cuts = [[95, "A+"], [88, "A"], [84, "A-"], [80, "B+"], [75, "B"], [71, "B-"], [67, "C+"], [62, "C"], [58, "C-"], [50, "D"]];
+  for (const [c, l] of cuts) if (score >= c) return l;
+  return "F";
+}
+
+const labHue = (i) => `hsl(${(i * 137.5 + 200) % 360} 68% 56%)`;
+
+function renderLab() {
+  const L = state.lab;
+  document.body.dataset.g = "X";
+  if (!L || !L.variants?.length) { $("card").innerHTML = `<p class="empty">No replay results yet. Run: npm run replay-lab -- --variant replay-lab/variants/... --json replay-lab/results/latest.json</p>`; return; }
+  const base = L.variants.find((v) => v.name === "baseline");
+  const rows = L.variants.map((v) => {
+    const hs = v.closed.filter((t) => t.reason === "hardStop"), el = v.closed.filter((t) => t.reason === "earlyLoss");
+    const top3 = [...v.closed].sort((a, b) => b.pnl - a.pnl).slice(0, 3).reduce((a, t) => a + t.pnl, 0);
+    // Result grade: the net return per day on the same scale as the daily cards (−8%/day → 0, flat → 50, +8%/day → 100).
+    const perDay = v.netPct / ((L.to - L.from) / 86400e3);
+    const resultScore = Math.max(0, Math.min(100, 50 + (perDay / 8) * 50));
+    return { v, g: labGrades(v, L.from, L.to), hs, el, top3, perDay, result: letterOf(resultScore) };
+  }).sort((a, b) => (a.v.name === "baseline" ? -1 : b.v.name === "baseline" ? 1 : b.v.netUsd - a.v.netUsd));
+  if (!labSel) labSel = new Set(["baseline", ...rows.filter((r) => r.v.name !== "baseline").slice(0, 2).map((r) => r.v.name)]);
+  const color = (name) => (name === "baseline" ? css("--muted") : labHue(rows.findIndex((r) => r.v.name === name)));
+  const hours = ((L.to - L.from) / 3600e3).toFixed(0);
+  const best = rows.filter((r) => r.v.name !== "baseline")[0];
+  $("card").innerHTML = `
+    <div class="card-head">
+      <div>
+        <span class="lbl">Replay Lab · v1.4 variants</span>
+        <h2>Same market, different rules</h2>
+        <p class="period">${new Date(L.from).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} – ${new Date(L.to).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${hours} h of recorded market data · ${L.variants.length} variants</p>
+        <p class="verdict">Each variant replays the bot's own code over the same recorded prices. ${best ? `Best so far: <b>${esc(best.v.name)}</b>, ${usd(best.v.netUsd)} vs the baseline's ${usd(base?.netUsd ?? 0)}.` : ""}</p>
+      </div>
+    </div>
+    <div class="section"><h3>Results</h3><div class="tscroll"><table class="labt">
+      <thead><tr><th></th><th>Variant</th><th style="text-align:center">Result</th><th style="text-align:center">Avg grade</th><th class="n">Net</th><th class="n">Trades</th><th class="n">Win %</th><th class="n">Max DD</th><th class="n">Hard stops</th><th class="n">Early exits</th><th class="n">Without top 3</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr${r.v.name === "baseline" ? ` style="background:var(--g-soft)"` : ""}>
+        <td><input type="checkbox" data-lab="${esc(r.v.name)}" ${labSel.has(r.v.name) ? "checked" : ""} aria-label="Show ${esc(r.v.name)} on the chart"></td>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color(r.v.name)};margin-right:7px"></span><b>${esc(r.v.name)}</b><br><span class="small muted">${esc(describeSet(r.v.set))}</span></td>
+        <td class="letter" data-g="${G(r.result)}" title="${pct(r.perDay, 2)} per day">${r.result}</td>
+        <td class="letter" data-g="${G(r.g.grade)}" style="opacity:.75">${r.g.grade}</td>
+        <td class="n ${r.v.netUsd >= 0 ? "pos" : "neg"}">${usd(r.v.netUsd)}<br><span class="small muted">${pct(r.v.netPct, 1)}</span></td>
+        <td class="n">${r.v.trades}</td><td class="n">${r.v.winRatePct.toFixed(0)}%</td>
+        <td class="n">${pct(r.v.maxDrawdownPct, 1)}</td>
+        <td class="n">${r.hs.length}<br><span class="small muted">${usd(r.hs.reduce((a, t) => a + t.pnl, 0), 0)}</span></td>
+        <td class="n">${r.el.length || "—"}${r.el.length ? `<br><span class="small muted">${usd(r.el.reduce((a, t) => a + t.pnl, 0), 0)}</span>` : ""}</td>
+        <td class="n ${r.v.netUsd - r.top3 >= 0 ? "pos" : "neg"}">${usd(r.v.netUsd - r.top3, 0)}</td></tr>`).join("")}</tbody></table></div>
+      <p class="small muted">Result = net return per day, on the daily cards' scale (−8%/day → F, flat → 50, +8%/day → A+). Avg grade = the average 3-hour report-card score, scored from realized P&L; it penalises variants that trade less, so read it alongside Result. "Without top 3" = net result minus the three biggest winners: how much the variant depends on rare jackpots.</p>
+    </div>
+    <div class="section"><h3>Cumulative P&amp;L</h3><canvas id="labChart" height="260" aria-label="Cumulative realized P&L over time for the selected variants"></canvas><div class="legend" id="labLegend"></div></div>
+    <div class="section"><h3>3-hour grades</h3><div id="labStrips" style="display:grid;gap:8px"></div></div>
+    <div class="section"><h3>How to read this</h3><ul class="notes">
+      <li>Compare variants to the <b>baseline</b> (v1.4's rules replayed), not to the live bot. Over the same hours the live bot made ${usd(L.live?.pnl ?? 0)} on ${L.live?.n ?? 0} trades vs the baseline's ${usd(base?.netUsd ?? 0)}: the replay fills at recorded prices with ${L.slipPct}% slippage and misses some instant crashes, so it runs optimistic.</li>
+      <li>This is one weekend of data. A rule that wins here should also win on the next few days of recordings before it goes live as v1.5.</li>
+      <li>Fewer trades is fine when the ones skipped were mostly losers; check the hard-stop column.</li>
+    </ul></div>`;
+  $("card").querySelectorAll("input[data-lab]").forEach((cb) => cb.addEventListener("change", () => { cb.checked ? labSel.add(cb.dataset.lab) : labSel.delete(cb.dataset.lab); drawLab(rows, L, color); }));
+  drawLab(rows, L, color);
+}
+
+function drawLab(rows, L, color) {
+  const sel = rows.filter((r) => labSel.has(r.v.name));
+  const { ctx, w, h } = setupCanvas($("labChart"));
+  const series = sel.map((r) => { let c = 0; return { name: r.v.name, pts: [[L.from, 0], ...r.v.closed.slice().sort((a, b) => a.closedAt - b.closedAt).map((t) => [t.closedAt, (c += t.pnl)]), [L.to, c]] }; });
+  const vals = series.flatMap((s) => s.pts.map((p) => p[1]));
+  let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals); const padv = (hi - lo) * 0.08 || 5; lo -= padv; hi += padv;
+  const P = { l: 58, r: 10, t: 8, b: 22 };
+  const X = (t) => P.l + ((t - L.from) / (L.to - L.from)) * (w - P.l - P.r), Y = (v) => P.t + (1 - (v - lo) / (hi - lo)) * (h - P.t - P.b);
+  ctx.font = `11px ${css("--mono")}`; ctx.fillStyle = css("--muted"); ctx.strokeStyle = css("--paper-rule"); ctx.lineWidth = 1; ctx.textAlign = "right";
+  const step = Math.pow(10, Math.floor(Math.log10((hi - lo) / 4 || 1))) * (((hi - lo) / 4) / Math.pow(10, Math.floor(Math.log10((hi - lo) / 4 || 1))) > 5 ? 10 : ((hi - lo) / 4) / Math.pow(10, Math.floor(Math.log10((hi - lo) / 4 || 1))) > 2 ? 5 : 2);
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) { ctx.beginPath(); ctx.moveTo(P.l, Y(v)); ctx.lineTo(w - P.r, Y(v)); ctx.stroke(); ctx.fillText(usd(v, 0), P.l - 6, Y(v) + 4); }
+  ctx.strokeStyle = css("--faint"); ctx.beginPath(); ctx.moveTo(P.l, Y(0)); ctx.lineTo(w - P.r, Y(0)); ctx.stroke();
+  ctx.textAlign = "center"; ctx.fillStyle = css("--muted");
+  const d0 = new Date(L.from); for (let t = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + 1).getTime(); t < L.to; t += 12 * 3600e3) ctx.fillText(new Date(t).toLocaleString("en-US", { weekday: "short", hour: "numeric" }), X(t), h - 6);
+  for (const s of series) {
+    ctx.strokeStyle = color(s.name); ctx.lineWidth = s.name === "baseline" ? 1.6 : 2.2; ctx.setLineDash(s.name === "baseline" ? [5, 4] : []);
+    ctx.beginPath(); s.pts.forEach(([t, v], i) => { const x = X(t), y = Y(v); if (i) { ctx.lineTo(x, Y(s.pts[i - 1][1])); ctx.lineTo(x, y); } else ctx.moveTo(x, y); }); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  $("labLegend").innerHTML = sel.map((r) => `<span><i style="background:${color(r.v.name)}"></i>${esc(r.v.name)} ${usd(r.v.netUsd)}</span>`).join("");
+  $("labStrips").innerHTML = sel.map((r) => `<div style="display:grid;grid-template-columns:190px minmax(0,1fr);gap:10px;align-items:center">
+      <span class="small"><b>${esc(r.v.name)}</b> · ${r.g.grade}</span>
+      <div style="display:flex;gap:3px;flex-wrap:wrap">${r.g.periods.map((p) => `<span class="letter" data-g="${G(p.grade)}" title="${new Date(p.start).toLocaleString("en-US", { weekday: "short", hour: "numeric" })}: ${p.grade} (${p.score.toFixed(0)}), ${pct(p.ret, 1)}" style="width:auto;min-width:26px;font-size:13px;border:1px solid var(--line);border-radius:4px;padding:1px 4px">${p.grade}</span>`).join("")}</div></div>`).join("");
+}
+
+setView(view);
+
+// On the local service the page reads the live API; a published copy reads the cards.json snapshot beside it.
+const LIVE = ["localhost", "127.0.0.1"].includes(location.hostname);
+// Books come from the server (data/books.json via the review service); nothing is hard-coded here.
+let book = (() => { try { return localStorage.getItem("rc-book") || null; } catch { return null; } })();
+const sourceUrl = () => (LIVE ? `/api/cards${book ? `?book=${encodeURIComponent(book)}` : ""}` : book ? `cards-${book}.json` : "cards.json");
+function syncBookSeg() {
+  if (state?.book) book = state.book;
+  $("bookName").textContent = book || "";
+  const books = state?.books || [];
+  $("bookSeg").innerHTML = books.map((b) => `<button data-b="${esc(b.id)}" aria-pressed="${b.id === book}" title="${esc(b.description + (b.retired ? " (retired)" : "") + (b.available ? "" : " — no data yet"))}"${b.retired ? ' style="opacity:.6"' : ""}>${esc(b.id)}</button>`).join("");
+}
+$("bookSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-b]");
+  if (!b || b.dataset.b === book) return;
+  book = b.dataset.b;
+  try { localStorage.setItem("rc-book", book); } catch {}
+  state = null; selected = null; selDay = null; histDay = null; histPinned = false; followLatest = true;
+  refresh();
+});
+
+async function refresh() {
+  try {
+    let res = await fetch(sourceUrl(), { cache: "no-store" });
+    if (!res.ok && book) { book = null; res = await fetch(sourceUrl(), { cache: "no-store" }); } // a book that no longer exists
+    if (!res.ok) throw new Error(`${sourceUrl()} returned ${res.status}`);
+    state = await res.json();
+    $("err").hidden = true;
+  } catch (e) {
+    $("err").textContent = LIVE ? `Could not reach the review server (${e.message}). Start it with: npm run report-cards` : `Could not load the review data (${e.message}).`;
+    $("err").hidden = false;
+    return;
+  }
+  syncBookSeg();
+  if (!state.current && view !== "lab") {
+    document.body.dataset.g = "X";
+    $("card").innerHTML = `<p class="empty">${book} has no trading data yet. It starts filling in once the bot has run it for a while; the first 3-hour card appears after the first full period.</p>`;
+    $("nowCard").innerHTML = ""; $("days").innerHTML = "";
+    return;
+  }
+  const st = state.status;
+  const stamp = new Date(state.serverTime).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  if (LIVE) {
+    $("liveDot").className = `dot ${st.live ? "live" : "down"}`;
+    $("liveTxt").textContent = st.live ? "Bot live" : `Bot silent ${st.summaryAgeMs != null ? Math.round(st.summaryAgeMs / 60000) + " min" : ""}`;
+    const mins = Math.max(0, Math.round((state.nextGradeAt - Date.now()) / 60000));
+    $("nextTxt").textContent = `Next card ${hm(state.nextGradeAt)} · in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+  } else {
+    $("liveDot").className = `dot ${st.live ? "live" : ""}`;
+    $("liveTxt").textContent = `Snapshot · ${stamp}`;
+    $("nextTxt").textContent = "Updated every 3 hours";
+  }
+  const hash = location.hash.slice(1);
+  if (hash.startsWith("day-") && !selDay) { selDay = hash.slice(4); view = "day"; setView("day"); }
+  if (hash === "lab" && view !== "lab") setView("lab");
+  if (!selected) selected = hash && (hash === "now" || state.cards.some((c) => c.id === hash)) ? hash : state.cards.at(-1)?.id || "now";
+  else if (followLatest && selected !== "now") selected = state.cards.at(-1)?.id || selected;
+  if (view === "day") renderDayView(); else if (view === "lab") renderLab(); else { renderNow(state.current, st); select(selected); }
+}
+
+let rt;
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => state && select(selected), 150); });
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>

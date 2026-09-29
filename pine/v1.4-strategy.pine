@@ -1,0 +1,212 @@
+//@version=6
+// ============================================================================
+// v1.4 "micro" momentum strategy (port of simulation_trading_bot_v1, book v1.4)
+// ============================================================================
+// Buys sub-$1M Solana memecoins at the START of a momentum burst and lets a few
+// big winners pay for frequent losers: -25% hard stop, sell 25% at +40% and 25%
+// at +150%, trail the rest (30% below the high, 20% past +150%), cut trades that
+// never move, and cap hold time.
+//
+// Use it on a 1-minute chart of a DEX pair (e.g. a Raydium / Pump.fun pair on
+// TradingView). Longer timeframes make the 5-minute signals coarse.
+//
+// What maps exactly from the bot:          what is approximated (no on-chain data in Pine):
+//   5m change +3%..+20%, 1h change <= 60%   buy:sell tx ratio  -> up-bar vs down-bar volume ratio
+//   market cap $100k..$1M (price x supply)   tx acceleration    -> 5m volume vs its trailing average
+//   5m volume >= $3k                         velocity ejection  -> 5m volume spike vs trailing average
+//   token age >= 30 min (chart history)      liquidity >= $15k, RugCheck/holder/LP/tax security gate,
+//   all exit rules, 6% sizing, cooldowns,    min 10 txs in 5m   -> NOT available; check these yourself
+//   daily loss limit, drawdown breaker
+//
+// The bot measures exits on "effective gain" (after an estimated exit cost);
+// the same cost is applied here (Exit cost input). Stops fill intrabar at the
+// stop level; the real bot polls every ~1 s and can fill worse on fast dumps.
+// ============================================================================
+strategy("v1.4 Micro Momentum", overlay = true, initial_capital = 500, currency = currency.USD,
+     default_qty_type = strategy.percent_of_equity, default_qty_value = 6, pyramiding = 0,
+     commission_type = strategy.commission.percent, commission_value = 0.25,
+     process_orders_on_close = false, calc_on_order_fills = false, max_labels_count = 500)
+
+// ---------------------------------------------------------------------------- inputs
+G_MKT = "Market filters"
+supply      = input.float(1e9, "Token supply (for market cap)", minval = 0, group = G_MKT, tooltip = "Pump.fun tokens have 1,000,000,000. Set 0 to skip the market-cap band.")
+quoteUsd    = input.float(1.0, "Quote currency price in USD", minval = 0, group = G_MKT, tooltip = "1 for USD/USDC pairs. For a SOL-quoted pair enter the SOL price.")
+mcapMin     = input.float(100000, "Market cap min ($)", group = G_MKT)
+mcapMax     = input.float(1000000, "Market cap max ($)", group = G_MKT)
+minVol5Usd  = input.float(3000, "Min 5m volume ($)", group = G_MKT)
+minBuySell  = input.float(1.2, "Min up:down volume ratio (buy:sell proxy)", step = 0.1, group = G_MKT)
+chg5Min     = input.float(3, "5m change min (%)", group = G_MKT)
+chg5Max     = input.float(20, "5m change max (%) — no chasing", group = G_MKT)
+chg60Max    = input.float(60, "1h change max (%) — not extended", group = G_MKT)
+minAccel    = input.float(1.5, "Min 5m volume vs trailing average (tx acceleration proxy)", step = 0.1, group = G_MKT)
+minAgeMin   = input.int(30, "Min history on chart (minutes)", group = G_MKT)
+
+G_EXIT = "Exits (v1.4)"
+hardStopPct = input.float(-25, "Hard stop (%)", group = G_EXIT)
+tp1Pct      = input.float(40, "Take-profit 1 (%)", group = G_EXIT)
+tp1Frac     = input.float(25, "Take-profit 1 size (% of initial)", group = G_EXIT)
+tp2Pct      = input.float(150, "Take-profit 2 (%)", group = G_EXIT)
+tp2Frac     = input.float(25, "Take-profit 2 size (% of initial)", group = G_EXIT)
+trailOnPct  = input.float(40, "Trailing stop turns on at (%)", group = G_EXIT)
+trailDist   = input.float(30, "Trail distance below high (%)", group = G_EXIT)
+trailTight  = input.float(20, "Tight trail distance (%)", group = G_EXIT)
+tightenAt   = input.float(150, "Tighten trail once peak reaches (%)", group = G_EXIT)
+trailFloor  = input.float(5, "Trail never below entry + (%)", group = G_EXIT)
+maxHoldMin  = input.int(45, "Max hold before trailing (min)", group = G_EXIT)
+maxTrailMin = input.int(240, "Max hold while trailing (min)", group = G_EXIT)
+nftMin      = input.int(12, "No-follow-through check after (min)", group = G_EXIT)
+nftPeak     = input.float(8, "No-follow-through: best gain below (%)", group = G_EXIT)
+velMult     = input.float(5, "Velocity ejection: 5m volume x trailing average", group = G_EXIT)
+velBelowHi  = input.float(8, "Velocity ejection: price below high since entry (%)", group = G_EXIT)
+exitCostPct = input.float(1.0, "Estimated exit cost (%)", step = 0.1, group = G_EXIT)
+
+G_RISK = "Risk"
+cooldownMin = input.int(120, "Re-entry cooldown after any exit (min)", group = G_RISK)
+dayBlockHS  = input.bool(true, "Block token for the rest of the UTC day after a hard stop", group = G_RISK)
+repeatLoss  = input.int(2, "Repeat-loser block: losses within 72h", group = G_RISK)
+dailyLoss   = input.float(15, "Daily loss limit (% of equity)", group = G_RISK)
+maxDD       = input.float(30, "Drawdown circuit breaker (% of equity)", group = G_RISK)
+showTable   = input.bool(true, "Show entry checklist", group = G_RISK)
+
+strategy.risk.max_intraday_loss(dailyLoss, strategy.percent_of_equity)
+strategy.risk.max_drawdown(maxDD, strategy.percent_of_equity)
+
+// ---------------------------------------------------------------------------- timeframe
+tfMin = timeframe.in_seconds() / 60.0
+n5    = math.max(1, int(math.round(5 / tfMin)))
+n20   = math.max(1, int(math.round(20 / tfMin)))
+n60   = math.max(1, int(math.round(60 / tfMin)))
+
+// ---------------------------------------------------------------------------- signals
+volUsd  = volume * close * quoteUsd
+vol5    = math.sum(volUsd, n5)
+upVol   = math.sum(close > open ? volume : 0.0, n5)
+dnVol   = math.sum(close < open ? volume : 0.0, n5)
+bsRatio = dnVol == 0 ? (upVol > 0 ? 99.0 : 0.0) : upVol / dnVol
+// Trailing baseline: average 5m volume over the 20 minutes that end 5 minutes ago (current burst excluded).
+base5   = ta.sma(vol5, n20)[n5]
+accel   = na(base5) or base5 <= 0 ? 0.0 : vol5 / base5
+
+chg5    = (close / close[n5] - 1) * 100
+chg60   = (close / close[n60] - 1) * 100
+mcap    = close * supply * quoteUsd
+
+var int firstTime = time
+ageMin  = (time - firstTime) / 60000.0
+
+okMcap  = supply <= 0 or (mcap >= mcapMin and mcap <= mcapMax)
+okVol   = vol5 >= minVol5Usd
+okBS    = bsRatio >= minBuySell
+okChg5  = not na(chg5) and chg5 >= chg5Min and chg5 <= chg5Max
+okChg60 = not na(chg60) and chg60 <= chg60Max
+okAccel = accel >= minAccel
+okAge   = ageMin >= minAgeMin
+
+// ---------------------------------------------------------------------------- cooldowns
+var int   lastExitT   = 0
+var int   blockUntil  = 0
+var float npAtEntry   = 0.0
+var array<int> lossTimes = array.new<int>()
+
+flatNow   = strategy.position_size == 0
+justFlat  = flatNow and nz(strategy.position_size[1]) > 0
+if justFlat
+    lastExitT := time
+    lastIdx = strategy.closedtrades - 1
+    reason = lastIdx >= 0 ? strategy.closedtrades.exit_comment(lastIdx) : ""
+    if dayBlockHS and reason == "Hard stop"
+        blockUntil := math.max(blockUntil, time - time % 86400000 + 86400000)
+    if strategy.netprofit - npAtEntry < 0
+        array.push(lossTimes, time)
+
+// Repeat losers: N losing trades inside 72 h blocks the token for 72 h.
+while array.size(lossTimes) > 0 and array.get(lossTimes, 0) < time - 72 * 3600000
+    array.shift(lossTimes)
+if array.size(lossTimes) >= repeatLoss
+    blockUntil := math.max(blockUntil, array.get(lossTimes, array.size(lossTimes) - 1) + 72 * 3600000)
+
+okCool  = lastExitT == 0 or time - lastExitT >= cooldownMin * 60000
+okBlock = time >= blockUntil
+
+entrySignal = okMcap and okVol and okBS and okChg5 and okChg60 and okAccel and okAge and okCool and okBlock
+
+// ---------------------------------------------------------------------------- entry
+if flatNow and entrySignal and barstate.isconfirmed
+    npAtEntry := strategy.netprofit
+    strategy.entry("Long", strategy.long, comment = "v1.4 entry")
+
+// ---------------------------------------------------------------------------- position management
+var int   entryT  = 0
+var float hiSince = na
+var bool  trailOn = false
+
+inPos = strategy.position_size > 0
+if inPos and nz(strategy.position_size[1]) == 0
+    entryT  := strategy.opentrades.entry_time(0)
+    hiSince := high
+    trailOn := false
+
+entry   = strategy.position_avg_price
+costF   = 1 - exitCostPct / 100
+eff(p)  => (p * costF / entry - 1) * 100
+priceAt(g) => entry * (1 + g / 100) / costF
+
+stopPx = float(na)
+if inPos
+    hiSince := math.max(hiSince, high)
+    peakEff = eff(hiSince)
+    if not trailOn and peakEff >= trailOnPct
+        trailOn := true
+
+    hardPx = priceAt(hardStopPct)
+    stopPx := hardPx
+    if trailOn
+        dist    = peakEff >= tightenAt ? trailTight : trailDist
+        trailPx = math.max(hiSince * (1 - dist / 100), priceAt(trailFloor))
+        stopPx := math.max(hardPx, trailPx)
+    stopName = trailOn ? "Trailing stop" : "Hard stop"
+
+    // Two partial take-profits (fractions of the initial position) and a runner, all sharing the stop.
+    strategy.exit("TP1", "Long", qty_percent = tp1Frac, limit = priceAt(tp1Pct), stop = stopPx, comment_profit = "Take-profit 1", comment_loss = stopName)
+    strategy.exit("TP2", "Long", qty_percent = tp2Frac, limit = priceAt(tp2Pct), stop = stopPx, comment_profit = "Take-profit 2", comment_loss = stopName)
+    strategy.exit("Runner", "Long", stop = stopPx, comment_loss = stopName)
+
+    // Time- and activity-based exits, checked at bar close like the bot's polling.
+    heldMin = (time_close - entryT) / 60000.0
+    gainNow = eff(close)
+    if barstate.isconfirmed
+        velSpike = not na(base5) and base5 > 0 and vol5 > velMult * base5
+        wrongWay = gainNow < 0 or close <= hiSince * (1 - velBelowHi / 100)
+        if velSpike and wrongWay
+            strategy.close("Long", comment = "Velocity ejection")
+        else if trailOn and heldMin >= maxTrailMin
+            strategy.close("Long", comment = "Max hold time")
+        else if not trailOn and heldMin >= maxHoldMin
+            strategy.close("Long", comment = "Max hold time")
+        else if not trailOn and heldMin >= nftMin and peakEff < nftPeak and gainNow <= 0
+            strategy.close("Long", comment = "No follow-through")
+
+// ---------------------------------------------------------------------------- visuals
+plotshape(entrySignal and flatNow, "Entry signal", shape.triangleup, location.belowbar, color.new(color.teal, 0), size = size.tiny)
+plot(inPos ? stopPx : na, "Stop", color.new(color.red, 0), 1, plot.style_linebr)
+plot(inPos ? priceAt(tp1Pct) : na, "Take-profit 1", color.new(color.green, 40), 1, plot.style_linebr)
+plot(inPos ? priceAt(tp2Pct) : na, "Take-profit 2", color.new(color.green, 70), 1, plot.style_linebr)
+plot(inPos ? entry : na, "Entry", color.new(color.gray, 30), 1, plot.style_linebr)
+
+alertcondition(entrySignal and flatNow, "v1.4 entry signal", "v1.4: entry signal on {{ticker}} at {{close}}")
+
+var table t = table.new(position.top_right, 2, 11, bgcolor = color.new(color.black, 20), border_width = 1)
+row(i, name, ok, val) =>
+    table.cell(t, 0, i, name, text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(t, 1, i, val, text_color = ok ? color.lime : color.red, text_size = size.small)
+if showTable and barstate.islast
+    row(0, "Market cap", okMcap, supply <= 0 ? "skipped" : "$" + str.tostring(mcap, "#,###"))
+    row(1, "5m volume", okVol, "$" + str.tostring(vol5, "#,###"))
+    row(2, "Up:down volume", okBS, str.tostring(bsRatio, "#.##"))
+    row(3, "5m change", okChg5, str.tostring(chg5, "#.#") + "%")
+    row(4, "1h change", okChg60, str.tostring(chg60, "#.#") + "%")
+    row(5, "Volume accel.", okAccel, str.tostring(accel, "#.##") + "x")
+    row(6, "History", okAge, str.tostring(ageMin, "#") + " min")
+    row(7, "Cooldown", okCool and okBlock, okCool and okBlock ? "clear" : "blocked")
+    row(8, "ENTRY SIGNAL", entrySignal, entrySignal ? "YES" : "no")
+    row(9, "Not checked", false, "liquidity, security, tax")

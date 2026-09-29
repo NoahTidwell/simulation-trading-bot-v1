@@ -80,6 +80,12 @@ export function evaluateExitRules(position: Position, priceUsd: number, now: num
 
   if (!position.trailingActive && gain >= X.trailingActivationGainPct) position.trailingActive = true;
 
+  // Replay-lab early exit: a trade already down a set amount after a few minutes is sold before the hard stop.
+  const L = profile.lab;
+  if (L && L.earlyExitMinutes > 0 && !position.trailingActive && heldMin >= L.earlyExitMinutes && gain <= L.earlyExitLossPct) {
+    return { type: "exit", reason: "earlyLoss", detail: `held ${heldMin.toFixed(0)}m, ${gain.toFixed(1)}% <= ${L.earlyExitLossPct}%` };
+  }
+
   // Time limits: a trailing winner is only bound by the absolute cap; anything
   // else gets the band's limit, and a trade that never moved gets cut early.
   if (position.trailingActive) {

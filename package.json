@@ -9,7 +9,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "npm run build && node dist/index.js",
     "dev": "tsx src/index.ts",
-    "dashboard": "node dashboard/server.js"
+    "dashboard": "node dashboard/server.js",
+    "report-cards": "node report-cards/server.js",
+    "report-card": "node report-cards/review.js show latest",
+    "alerts": "node alerts/alerts.js",
+    "alerts:test": "node alerts/alerts.js --test",
+    "replay-lab": "tsx scripts/replay.ts",
+    "services": "node scripts/services.mjs"
   },
   "engines": {
     "node": ">=18"

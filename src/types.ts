@@ -14,7 +14,8 @@ export type ExitReason =
   | "maxHoldTime"
   | "velocityEjection"
   | "stalePrice"
-  | "securityReflag";
+  | "securityReflag"
+  | "earlyLoss";
 
 export interface BandParams {
   marketCapMinUsd: number;
@@ -98,6 +99,8 @@ export interface ExitParams {
 export interface StrategyProfile {
   id: string;
   version: string;
+  /** One line for dashboards: what this book changes relative to its parent. */
+  description?: string;
   /** Band thresholds used for classification and the entry filter. */
   bands: Record<Band, BandParams>;
   /** Require a new 30-minute high at entry (v1.2 yes; v1.3 no). */
@@ -107,6 +110,24 @@ export interface StrategyProfile {
   startingBankrollUsd: number;
   /** null = the main data/ tree; otherwise data/<subdir>/. */
   dataSubdir: string | null;
+  /** Experimental rules tested in the replay lab (absent or zeroed = off). */
+  lab?: LabRules;
+}
+
+/** Replay-lab rules. Each is off when its switch value is 0. */
+export interface LabRules {
+  /** Wait this long after a passing signal; buy only if the token still qualifies and price held (0 = buy at once). */
+  confirmSeconds: number;
+  /** "Held" = price no more than this % below the signal price after the wait. */
+  confirmMaxDropPct: number;
+  /** Sell early: once held this many minutes (0 = off) ... */
+  earlyExitMinutes: number;
+  /** ... if the effective gain is at or below this % and the trailing stop is not active. */
+  earlyExitLossPct: number;
+  /** At most this many entries on one token in any rolling 24 h (0 = unlimited). */
+  maxEntriesPerTokenPerDay: number;
+  /** Minimum pair age at entry for this book, in minutes (0 = use PRICE_STRUCTURE.minTokenAgeMinutes). */
+  minTokenAgeMinutes: number;
 }
 
 export interface Candidate {

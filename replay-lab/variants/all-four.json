@@ -1,0 +1,1 @@
+{ "name": "all-four", "set": { "BOOK.exit.trailingActivationGainPct": 20, "BOOK.lab.earlyExitMinutes": 5, "BOOK.lab.earlyExitLossPct": -10, "BOOK.lab.maxEntriesPerTokenPerDay": 2, "BOOK.lab.confirmSeconds": 120, "BOOK.lab.confirmMaxDropPct": 3 } }

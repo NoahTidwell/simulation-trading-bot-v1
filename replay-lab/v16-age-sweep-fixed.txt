@@ -1,0 +1,16 @@
+replaying 3 recording file(s): market-2026-09-26.jsonl.gz, market-2026-09-27.jsonl.gz, market-2026-09-28.jsonl.gz
+entry rules: v1.5
+fills 3s after decision, slip 1%/side, SOL $115, ungated signals: skip
+
+period 2026-09-26 05:16 → 2026-09-28 21:24 UTC (64.1 h)
+live bot, same period: 19 trades, 3 wins, -47.73 USD (calibration check for the baseline)
+
+variant                            trades  win%    net $  net %  maxDD% open ungated  exits
+baseline                               49    27   -16.72   -3.3   -15.1    0       1  noFollowThrough 15, earlyLoss 14, maxHoldTime 7, trailingStop 5, hardStop 4, stalePrice 3, velocityEjection 1
+v1.5 + min age 2h                      46    28    13.64    2.7   -10.1    1       1  noFollowThrough 15, earlyLoss 13, maxHoldTime 7, trailingStop 5, stalePrice 3, hardStop 2, velocityEjection 1
+v1.5 + min age 6h                      41    24   -11.02   -2.2   -10.5    0       1  noFollowThrough 14, earlyLoss 13, maxHoldTime 7, stalePrice 3, trailingStop 2, velocityEjection 1, hardStop 1
+v1.5 + min age 24h                     24    42    12.28    2.5    -3.3    0       1  noFollowThrough 8, earlyLoss 6, maxHoldTime 6, stalePrice 3, trailingStop 1
+
+signals with no recorded security verdict (skipped): SHARTCOIN UpBBfy
+
+wrote replay-lab/v16/age-sweep-fixed.json

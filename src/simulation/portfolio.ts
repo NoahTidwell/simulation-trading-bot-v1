@@ -154,9 +154,8 @@ export class Portfolio {
    * after the closing trade has been recorded (applyExit), so it counts.
    */
   blockReentry(mint: string, reason: ExitReason, now: number): number {
-    const endOfUtcDay = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate() + 1);
-    const forDay = (REENTRY.excludeForDayReasons as readonly string[]).includes(reason);
-    let until = forDay ? endOfUtcDay : now + REENTRY.afterAnyExitMinutes * 60_000;
+    const badExit = (REENTRY.excludeForDayReasons as readonly string[]).includes(reason);
+    let until = badExit ? now + REENTRY.badExitBlockHours * 3_600_000 : now + REENTRY.afterAnyExitMinutes * 60_000;
     const { maxLosses, windowHours, blockHours } = REENTRY.repeatLoser;
     const since = now - windowHours * 3_600_000;
     const recentLosses = this.state.closedTrades.filter((t) => t.tokenAddress === mint && t.closedAt >= since && t.realizedPnlUsd <= 0).length;
@@ -164,6 +163,12 @@ export class Portfolio {
     const existing = this.state.reentryBlockedUntil[mint] ?? 0;
     this.state.reentryBlockedUntil[mint] = Math.max(existing, until);
     return this.state.reentryBlockedUntil[mint];
+  }
+
+  /** Entries on a token since `since` (closed trades and open positions). */
+  entriesOnToken(mint: string, since: number): number {
+    return this.state.closedTrades.filter((t) => t.tokenAddress === mint && t.openedAt >= since).length
+      + this.state.positions.filter((p) => p.tokenAddress === mint && p.openedAt >= since).length;
   }
 
   hasPosition(mint: string): boolean {
